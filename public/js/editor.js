@@ -220,9 +220,16 @@ btnSave.addEventListener('click', async () => {
       const err = await r.json().catch(() => ({}));
       throw new Error(err.error || 'Error');
     }
-    await r.json();
+    const data = await r.json();
+    metaMasterFile.textContent = data.openai_file_id || '—';
     metaUpdated.textContent = new Date().toLocaleString();
-    showToast('Guardado ✓ (acordate de "Actualizar vector store" en la home)');
+    if (data.synced) {
+      showToast('Guardado y sincronizado con OpenAI ✓');
+    } else if (data.sync_error) {
+      showToast('Guardado ✓ (sync falló: ' + data.sync_error + ')', true);
+    } else {
+      showToast('Guardado ✓');
+    }
   } catch (err) {
     showToast(err.message, true);
   } finally {

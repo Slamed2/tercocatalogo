@@ -30,7 +30,6 @@
       <div class="actions">
         <button id="btn-copy" class="btn">Copiar</button>
         <button id="btn-download" class="btn">Descargar</button>
-        <button id="btn-sync" class="btn btn-primary">☁ Actualizar vector store</button>
       </div>
     </header>
 
@@ -95,21 +94,6 @@
         a.download = 'catalogo.md';
         a.click();
         URL.revokeObjectURL(a.href);
-      });
-
-      document.getElementById('btn-sync').addEventListener('click', async () => {
-        const btn = document.getElementById('btn-sync');
-        btn.disabled = true; btn.textContent = 'Subiendo…';
-        try {
-          const r = await fetch('/api/events/sync', { method: 'POST' });
-          const d = await r.json();
-          if (!r.ok) throw new Error(d.error || 'Error');
-          showToast('Vector store actualizado ✓');
-        } catch (err) {
-          showToast(err.message, true);
-        } finally {
-          btn.disabled = false; btn.textContent = '☁ Actualizar vector store';
-        }
       });
 
       load();

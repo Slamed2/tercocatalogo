@@ -15,6 +15,7 @@ import {
   writeEventContent,
   readEventContent,
   makeSlug,
+  syncEventFile,
   syncMasterFile,
   syncAllToVectorStore,
   deleteEventCompletely,
@@ -304,7 +305,14 @@ router.post('/', async (req, res) => {
     else order.push(slug);
     await writeMasterMeta({ ...master, order });
 
-    // No auto-sync: el usuario aprieta "Actualizar vector store" cuando quiere pushear.
+    // Auto-sync: subir el archivo vacío + actualizar el catálogo.
+    const [eventRes, catalogRes] = await Promise.allSettled([
+      syncEventFile(slug),
+      syncMasterFile(),
+    ]);
+    if (eventRes.status === 'rejected') console.error('auto-sync evento nuevo falló:', eventRes.reason?.message);
+    if (catalogRes.status === 'rejected') console.error('auto-sync catálogo falló:', catalogRes.reason?.message);
+
     res.json({ slug, title });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -326,9 +334,23 @@ router.put('/:slug', async (req, res) => {
       updated_at: new Date().toISOString(),
     });
 
-    // No auto-sync al vector store: el usuario aprieta "Actualizar vector store"
-    // desde la home cuando quiere pushear todos los cambios acumulados.
-    res.json({ ok: true });
+    // Auto-sync: subir el archivo del evento + actualizar el catálogo en paralelo.
+    // Si alguno falla, respondemos 200 igual pero lo logueamos y avisamos al cliente.
+    const [eventRes, catalogRes] = await Promise.allSettled([
+      syncEventFile(slug),
+      syncMasterFile(),
+    ]);
+    if (eventRes.status === 'rejected') console.error('auto-sync evento falló:', eventRes.reason?.message);
+    if (catalogRes.status === 'rejected') console.error('auto-sync catálogo falló:', catalogRes.reason?.message);
+    res.json({
+      ok: true,
+      openai_file_id: eventRes.status === 'fulfilled' ? eventRes.value : null,
+      synced: eventRes.status === 'fulfilled' && catalogRes.status === 'fulfilled',
+      sync_error: [
+        eventRes.status === 'rejected' ? `evento: ${eventRes.reason?.message}` : null,
+        catalogRes.status === 'rejected' ? `catálogo: ${catalogRes.reason?.message}` : null,
+      ].filter(Boolean).join(' | ') || null,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
