@@ -1,12 +1,46 @@
 import 'dotenv/config';
 import express from 'express';
+import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import eventsRouter from './src/routes/events.js';
 import thumbsRouter from './src/routes/thumbs.js';
+import { pullFromVectorStore } from './src/services/master.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Auto-bootstrap: si data/eventos está vacío al arrancar, bajar todo del vector store.
+// Esto resuelve el caso de container nuevo (easypanel tras redeploy sin volumen
+// persistente) — la UI arranca poblada sin intervención humana.
+async function bootstrapFromVectorStore() {
+  const EVENTS_DIR = path.join(__dirname, 'data', 'eventos');
+  try {
+    await fs.mkdir(EVENTS_DIR, { recursive: true });
+    const entries = await fs.readdir(EVENTS_DIR, { withFileTypes: true });
+    const nonEmpty = entries.some((e) => e.isDirectory());
+    if (nonEmpty) {
+      console.log('[bootstrap] data/eventos ya tiene contenido, skip pull');
+      return;
+    }
+    if (!process.env.OPENAI_VECTOR_STORE_ID || !process.env.OPENAI_API_KEY) {
+      console.log('[bootstrap] OPENAI_* no configurado, skip pull');
+      return;
+    }
+    console.log('[bootstrap] data/eventos vacío — pulling del vector store...');
+    const t0 = Date.now();
+    const result = await pullFromVectorStore((ev) => {
+      if (ev.type === 'start') console.log(`[bootstrap] ${ev.total} archivos a descargar`);
+      if (ev.type === 'done') console.log(`[bootstrap] listo en ${Date.now() - t0}ms: ${ev.result.events} eventos`);
+    });
+    if (result?.errors?.length) {
+      console.warn(`[bootstrap] ${result.errors.length} archivos fallaron`);
+    }
+  } catch (err) {
+    console.error('[bootstrap] falló:', err.message);
+    // No crasheamos: el server igual arranca, la UI va a estar vacía hasta pull manual.
+  }
+}
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -110,6 +144,7 @@ if (!authEnabled) {
   app.get('/healthz', (_req, res) => res.json({ ok: true }));
 }
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Servidor escuchando en http://localhost:${PORT}`);
+  await bootstrapFromVectorStore();
 });

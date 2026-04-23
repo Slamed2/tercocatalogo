@@ -15,6 +15,7 @@ import {
   writeEventContent,
   readEventContent,
   makeSlug,
+  syncEventFile,
   syncMasterFile,
   syncAllToVectorStore,
   deleteEventCompletely,
@@ -304,7 +305,12 @@ router.post('/', async (req, res) => {
     else order.push(slug);
     await writeMasterMeta({ ...master, order });
 
-    try { await syncMasterFile(); } catch (err) { console.error('syncMasterFile:', err.message); }
+    // Auto-sync el evento recién creado (sin contenido todavía, se re-subirá en el primer save)
+    // + actualizar el catálogo con el nuevo título en el índice.
+    await Promise.allSettled([
+      syncEventFile(slug),
+      syncMasterFile(),
+    ]);
 
     res.json({ slug, title });
   } catch (err) {
@@ -327,8 +333,20 @@ router.put('/:slug', async (req, res) => {
       updated_at: new Date().toISOString(),
     });
 
-    const newFileId = await syncMasterFile();
-    res.json({ ok: true, openai_file_id: newFileId });
+    // Auto-sync: subir el archivo del evento + actualizar el catálogo en paralelo.
+    // Si alguno falla, respondemos 200 igual pero lo logueamos (el botón manual
+    // "Sincronizar" queda como fallback).
+    const [eventId, catalogId] = await Promise.allSettled([
+      syncEventFile(slug),
+      syncMasterFile(),
+    ]);
+    if (eventId.status === 'rejected') console.error('auto-sync evento falló:', eventId.reason?.message);
+    if (catalogId.status === 'rejected') console.error('auto-sync catálogo falló:', catalogId.reason?.message);
+    res.json({
+      ok: true,
+      openai_file_id: eventId.status === 'fulfilled' ? eventId.value : null,
+      catalog_file_id: catalogId.status === 'fulfilled' ? catalogId.value : null,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
