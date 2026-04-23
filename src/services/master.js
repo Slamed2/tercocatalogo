@@ -128,7 +128,7 @@ export async function syncEventFile(slug) {
 // Sube el archivo base (catálogo) con índice + reglas comunes.
 export async function syncCatalogFile() {
   const master = await readMasterMeta();
-  const content = rewriteMapasUrls(await buildFullMd());
+  const content = rewriteMapasUrls(await buildCatalogIndexMd());
 
   const tmpDir = path.join(MASTER_DIR, 'tmp');
   await fs.mkdir(tmpDir, { recursive: true });
@@ -178,7 +178,43 @@ export async function loadAllEventsInOrder() {
   return { master, events };
 }
 
-// Construye el .md completo (preview + upload) — índice + preamble + eventos + reglas
+// Construye el .md ligero del catálogo — sólo índice + preámbulo + reglas.
+// Es lo que se sube al vector store como `terco-tour-catalogo.md`. Cada evento
+// ya está como archivo individual en el VS, así que NO hace falta duplicar su
+// contenido acá. Este archivo sirve de "tabla de contenidos" + reglas globales
+// que el agente puede citar sin tener que abrir 77 archivos.
+export async function buildCatalogIndexMd() {
+  const { master, events } = await loadAllEventsInOrder();
+  const regularEvents = events.filter((e) => !e.meta.is_rules && !e.meta.is_index);
+  const rules = events.find((e) => e.meta.is_rules);
+
+  const titles = regularEvents.map((e) => e.title).sort((a, b) => a.localeCompare(b, 'es'));
+  const lines = [
+    '# Terco Tour — Catálogo de eventos',
+    '',
+    'Listado actualizado de todos los eventos operativos. Usá este archivo para responder consultas tipo "qué eventos tienen", "qué hay disponible", "shows próximos". El detalle de cada evento (precios, zonas, mapa) está en su archivo individual `{slug}.md`.',
+    '',
+    '## Índice de eventos',
+    '',
+    ...titles.map((t) => `- ${t}`),
+    '',
+    `**Total de eventos:** ${titles.length}`,
+  ];
+
+  if (master.preamble && master.preamble.trim()) {
+    lines.push('', master.preamble.trim());
+  }
+
+  if (rules) {
+    lines.push('', '---', '', '## Reglas comunes (aplican a todos los eventos)', '', rules.content.trim());
+  }
+
+  return lines.join('\n') + '\n';
+}
+
+// Construye el .md completo (preview) — índice + preamble + eventos + reglas.
+// Sólo se usa en GET /api/events/preview para que el humano vea el doc
+// ensamblado, NO se sube al vector store.
 export async function buildFullMd() {
   const { master, events } = await loadAllEventsInOrder();
   const regularEvents = events.filter((e) => !e.meta.is_rules && !e.meta.is_index);
