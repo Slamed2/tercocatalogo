@@ -335,7 +335,8 @@ router.put('/:slug', async (req, res) => {
   }
 });
 
-// POST /api/events/:slug/map — sube una imagen de mapa al folder del evento y devuelve la URL local
+// POST /api/events/:slug/map — sube una imagen a public/mapas/ y devuelve URL absoluta.
+// Si PUBLIC_BASE_URL está seteada, devuelve URL completa; sino, relativa /mapas/...
 router.post('/:slug/map', upload.single('map'), async (req, res) => {
   try {
     const { slug } = req.params;
@@ -343,11 +344,24 @@ router.post('/:slug/map', upload.single('map'), async (req, res) => {
     const meta = await readEventMeta(slug);
     if (!meta) return res.status(404).json({ error: 'No existe' });
     const ext = (req.file.originalname.match(/\.(jpg|jpeg|png|webp|gif)$/i) || ['.jpg'])[0].toLowerCase();
-    const dir = path.join(DATA_DIR, slug);
-    await fs.mkdir(dir, { recursive: true });
-    const filename = `map-${Date.now()}${ext}`;
-    await fs.writeFile(path.join(dir, filename), req.file.buffer);
-    res.json({ url: `/data/eventos/${slug}/${filename}` });
+    // Nombre base desde el original, sanitizado (espacios → guiones, sin caracteres raros).
+    const baseName = (req.file.originalname.replace(/\.[^.]+$/, '') || slug)
+      .replace(/[^\w\s.-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-');
+    const PUBLIC_MAPAS_DIR = path.join(path.dirname(DATA_DIR), '..', 'public', 'mapas');
+    await fs.mkdir(PUBLIC_MAPAS_DIR, { recursive: true });
+    let filename = `${baseName}${ext}`;
+    // Evitar colisión con archivo existente.
+    let i = 1;
+    while (true) {
+      try { await fs.access(path.join(PUBLIC_MAPAS_DIR, filename)); }
+      catch { break; }
+      filename = `${baseName}-${++i}${ext}`;
+    }
+    await fs.writeFile(path.join(PUBLIC_MAPAS_DIR, filename), req.file.buffer);
+    const base = (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+    res.json({ url: `${base}/mapas/${filename}` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

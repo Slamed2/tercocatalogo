@@ -12,6 +12,15 @@ function escapeHtml(s) {
   }[m]));
 }
 
+// Convierte una URL a su versión thumbnail si apunta a /mapas/.
+// Soporta absolutas (https://.../mapas/x.png) y relativas (/mapas/x.png).
+function toThumbUrl(url, width = 480) {
+  if (!url) return url;
+  const m = url.match(/\/mapas\/([^/?#]+)/);
+  if (!m) return url;
+  return `/thumb/${encodeURIComponent(m[1])}?w=${width}`;
+}
+
 async function load() {
   const r = await fetch('/api/events');
   const data = await r.json();
@@ -38,7 +47,7 @@ async function load() {
     const img = e.is_rules
       ? '<span class="rules-icon">⚙</span>'
       : e.image
-        ? `<img src="${e.image}" alt="">`
+        ? `<img src="${toThumbUrl(e.image, 480)}" alt="" loading="lazy" decoding="async" />`
         : '<span>Sin imagen</span>';
     card.innerHTML = `
       <div class="card-img">${img}</div>

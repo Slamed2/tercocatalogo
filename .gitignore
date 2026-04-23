@@ -8,6 +8,7 @@ node_modules
 data/eventos
 data/_master/tmp
 data/_master/assembled.md
+data/_master/thumbs
 
 # Fuente original de mapas (ya migrados a public/mapas/)
 Mapas eventos TERCO (F)/

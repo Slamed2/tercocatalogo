@@ -4,6 +4,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import eventsRouter from './src/routes/events.js';
+import thumbsRouter from './src/routes/thumbs.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -50,6 +51,14 @@ function parseCookies(header) {
   }
   return cookies;
 }
+
+// Rutas públicas (antes del auth middleware): mapas e imágenes servidas al
+// agente/usuarios finales de OpenAI no tienen cookie de sesión.
+app.use('/mapas', express.static(path.join(__dirname, 'public', 'mapas'), {
+  maxAge: '7d',
+  immutable: true,
+}));
+app.use('/thumb', thumbsRouter);
 
 if (authEnabled) {
   app.get('/login', (_req, res) => {
