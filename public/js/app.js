@@ -12,12 +12,16 @@ function escapeHtml(s) {
 }
 
 // Convierte una URL a su versión thumbnail si apunta a /mapas/.
-// Soporta absolutas (https://.../mapas/x.png) y relativas (/mapas/x.png).
+// Soporta:
+//  - /mapas/file.png              → /thumb/file.png (legacy plano)
+//  - /mapas/<slug>/file.png       → /thumb/<slug>/file.png (nuevo)
+//  - https://.../mapas/... también (absoluta o relativa).
 function toThumbUrl(url, width = 480) {
   if (!url) return url;
-  const m = url.match(/\/mapas\/([^/?#]+)/);
+  const m = url.match(/\/mapas\/([^?#]+)/);
   if (!m) return url;
-  return `/thumb/${encodeURIComponent(m[1])}?w=${width}`;
+  const parts = m[1].split('/').map(encodeURIComponent).join('/');
+  return `/thumb/${parts}?w=${width}`;
 }
 
 async function load() {

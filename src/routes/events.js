@@ -357,8 +357,8 @@ router.put('/:slug', async (req, res) => {
   }
 });
 
-// POST /api/events/:slug/map — sube una imagen a public/mapas/ y devuelve URL absoluta.
-// Si PUBLIC_BASE_URL está seteada, devuelve URL completa; sino, relativa /mapas/...
+// POST /api/events/:slug/map — sube una imagen a public/mapas/<slug>/ y devuelve URL absoluta.
+// Si PUBLIC_BASE_URL está seteada, devuelve URL completa; sino, relativa /mapas/<slug>/...
 router.post('/:slug/map', upload.single('map'), async (req, res) => {
   try {
     const { slug } = req.params;
@@ -366,24 +366,23 @@ router.post('/:slug/map', upload.single('map'), async (req, res) => {
     const meta = await readEventMeta(slug);
     if (!meta) return res.status(404).json({ error: 'No existe' });
     const ext = (req.file.originalname.match(/\.(jpg|jpeg|png|webp|gif)$/i) || ['.jpg'])[0].toLowerCase();
-    // Nombre base desde el original, sanitizado (espacios → guiones, sin caracteres raros).
-    const baseName = (req.file.originalname.replace(/\.[^.]+$/, '') || slug)
-      .replace(/[^\w\s.-]/g, '')
-      .replace(/\s+/g, '-')
-      .replace(/-+/g, '-');
-    const PUBLIC_MAPAS_DIR = path.join(path.dirname(DATA_DIR), '..', 'public', 'mapas');
-    await fs.mkdir(PUBLIC_MAPAS_DIR, { recursive: true });
-    let filename = `${baseName}${ext}`;
-    // Evitar colisión con archivo existente.
-    let i = 1;
-    while (true) {
-      try { await fs.access(path.join(PUBLIC_MAPAS_DIR, filename)); }
-      catch { break; }
-      filename = `${baseName}-${++i}${ext}`;
-    }
-    await fs.writeFile(path.join(PUBLIC_MAPAS_DIR, filename), req.file.buffer);
+    // Una subcarpeta por evento: /mapas/<slug>/imagenN.ext
+    const eventDir = path.join(path.dirname(DATA_DIR), '..', 'public', 'mapas', slug);
+    await fs.mkdir(eventDir, { recursive: true });
+    // Próximo índice: cuento los imagenN.* existentes.
+    let n = 1;
+    try {
+      const files = await fs.readdir(eventDir);
+      const used = files
+        .map((f) => (f.match(/^imagen(\d+)\./i) || [])[1])
+        .filter(Boolean)
+        .map((s) => parseInt(s, 10));
+      if (used.length) n = Math.max(...used) + 1;
+    } catch {}
+    const filename = `imagen${n}${ext}`;
+    await fs.writeFile(path.join(eventDir, filename), req.file.buffer);
     const base = (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
-    res.json({ url: `${base}/mapas/${filename}` });
+    res.json({ url: `${base}/mapas/${slug}/${filename}` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
