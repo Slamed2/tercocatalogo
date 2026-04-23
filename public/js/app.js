@@ -1,9 +1,22 @@
 const grid = document.getElementById('grid');
 const empty = document.getElementById('empty');
+const noResults = document.getElementById('no-results');
 const btnNuevo = document.getElementById('btn-nuevo');
 const dlg = document.getElementById('dlg-nuevo');
 const nuevoTitle = document.getElementById('nuevo-title');
 const masterInfo = document.getElementById('master-info');
+const searchInput = document.getElementById('search');
+
+// Normaliza texto para búsqueda: minúsculas, sin acentos, sin whitespace extra.
+function normalize(s) {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+// Todos los eventos cargados (fuente de verdad para el filtro).
+let allEvents = [];
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (m) => ({
@@ -24,25 +37,13 @@ function toThumbUrl(url, width = 480) {
   return `/thumb/${parts}?w=${width}`;
 }
 
-async function load() {
-  const r = await fetch('/api/events');
-  const data = await r.json();
-  const events = data.events || [];
-  const withSync = events.filter((e) => e.openai_file_id).length;
-  if (masterInfo) {
-    const indexTxt = data.index?.openai_file_id
-      ? ` · índice: ${data.index.openai_file_id}`
-      : '';
-    masterInfo.textContent = events.length
-      ? `${events.length} eventos en el vector store (${withSync} sincronizados)${indexTxt}`
-      : 'Sin eventos. Importá un .md o creá uno nuevo.';
-  }
+function renderGrid(events) {
   grid.innerHTML = '';
   if (!events.length) {
-    empty.hidden = false;
+    grid.hidden = true;
     return;
   }
-  empty.hidden = true;
+  grid.hidden = false;
   for (const e of events) {
     const card = document.createElement('a');
     card.className = 'card' + (e.is_rules ? ' card-rules' : '');
@@ -62,6 +63,43 @@ async function load() {
     grid.appendChild(card);
   }
 }
+
+function applyFilter() {
+  const q = normalize(searchInput?.value);
+  empty.hidden = allEvents.length > 0;
+  if (!allEvents.length) {
+    grid.innerHTML = '';
+    grid.hidden = true;
+    noResults.hidden = true;
+    return;
+  }
+  if (!q) {
+    renderGrid(allEvents);
+    noResults.hidden = true;
+    return;
+  }
+  const filtered = allEvents.filter((e) => normalize(e.title).includes(q) || normalize(e.slug).includes(q));
+  renderGrid(filtered);
+  noResults.hidden = filtered.length > 0;
+}
+
+async function load() {
+  const r = await fetch('/api/events');
+  const data = await r.json();
+  allEvents = data.events || [];
+  const withSync = allEvents.filter((e) => e.openai_file_id).length;
+  if (masterInfo) {
+    const indexTxt = data.index?.openai_file_id
+      ? ` · índice: ${data.index.openai_file_id}`
+      : '';
+    masterInfo.textContent = allEvents.length
+      ? `${allEvents.length} eventos en el vector store (${withSync} sincronizados)${indexTxt}`
+      : 'Sin eventos. Importá un .md o creá uno nuevo.';
+  }
+  applyFilter();
+}
+
+searchInput?.addEventListener('input', applyFilter);
 
 btnNuevo.addEventListener('click', () => {
   nuevoTitle.value = '';

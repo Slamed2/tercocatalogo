@@ -14,9 +14,13 @@
     </header>
 
     <main>
-      <p id="master-info" class="master-info"></p>
+      <div class="toolbar">
+        <input id="search" type="search" placeholder="Buscar evento…" autocomplete="off" />
+        <p id="master-info" class="master-info"></p>
+      </div>
       <div id="grid" class="grid"></div>
       <p id="empty" class="empty" hidden>Aún no hay eventos. Creá uno nuevo.</p>
+      <p id="no-results" class="empty" hidden>No hay resultados para esta búsqueda.</p>
     </main>
 
 
