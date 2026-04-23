@@ -220,10 +220,9 @@ btnSave.addEventListener('click', async () => {
       const err = await r.json().catch(() => ({}));
       throw new Error(err.error || 'Error');
     }
-    const data = await r.json();
-    metaMasterFile.textContent = data.openai_file_id || '—';
+    await r.json();
     metaUpdated.textContent = new Date().toLocaleString();
-    showToast('Guardado y sincronizado con OpenAI ✓');
+    showToast('Guardado ✓ (acordate de "Actualizar vector store" en la home)');
   } catch (err) {
     showToast(err.message, true);
   } finally {

@@ -1,7 +1,6 @@
 const grid = document.getElementById('grid');
 const empty = document.getElementById('empty');
 const btnNuevo = document.getElementById('btn-nuevo');
-const btnOpenai = document.getElementById('btn-openai');
 const dlg = document.getElementById('dlg-nuevo');
 const nuevoTitle = document.getElementById('nuevo-title');
 const masterInfo = document.getElementById('master-info');
@@ -120,9 +119,6 @@ function showProgressOverlay(title) {
   };
 }
 
-// Alias legacy.
-function showPullOverlay() { return showProgressOverlay('Descargando desde OpenAI'); }
-
 // Consume NDJSON del body y dispatches a ui.update por evento.
 async function consumeNdjson(resp, ui) {
   if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`);
@@ -149,31 +145,6 @@ async function consumeNdjson(resp, ui) {
   if (errorMsg) throw new Error(errorMsg);
   return finalResult;
 }
-
-btnOpenai.addEventListener('click', async (e) => {
-  const btn = e.currentTarget;
-  if (!confirm('Descargar todos los archivos del vector store y sobrescribir los eventos locales?\n\nLos cambios locales sin sincronizar se perderán.')) {
-    return;
-  }
-  const orig = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = 'Descargando…';
-  const ui = showProgressOverlay('Descargando desde OpenAI');
-  try {
-    const r = await fetch('/api/events/openai/pull', { method: 'POST' });
-    const d = await consumeNdjson(r, ui);
-    if (!d) throw new Error('Respuesta incompleta');
-    const errTxt = d.errors?.length ? `\n\n${d.errors.length} archivos fallaron` : '';
-    alert(`Importado ✓\n\n${d.events} eventos${d.rules ? ' + reglas' : ''}${d.catalog || d.index ? ' + catálogo' : ''}${errTxt}`);
-    await load();
-  } catch (err) {
-    alert('Error: ' + err.message);
-  } finally {
-    ui.close();
-    btn.disabled = false;
-    btn.textContent = orig;
-  }
-});
 
 document.getElementById('btn-sync')?.addEventListener('click', async (e) => {
   const btn = e.currentTarget;

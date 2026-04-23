@@ -13,7 +13,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Auto-bootstrap: si data/eventos está vacío al arrancar, bajar todo del vector store.
 // Esto resuelve el caso de container nuevo (easypanel tras redeploy sin volumen
 // persistente) — la UI arranca poblada sin intervención humana.
-async function bootstrapFromVectorStore() {
+// El progreso se expone en app.locals.bootstrap para que GET /api/events lo reporte
+// y la UI muestre "Cargando... N/total" en vez de "Sin eventos".
+async function bootstrapFromVectorStore(app) {
+  app.locals.bootstrap = { active: false, current: 0, total: 0, error: null };
   const EVENTS_DIR = path.join(__dirname, 'data', 'eventos');
   try {
     await fs.mkdir(EVENTS_DIR, { recursive: true });
@@ -25,12 +28,20 @@ async function bootstrapFromVectorStore() {
     }
     if (!process.env.OPENAI_VECTOR_STORE_ID || !process.env.OPENAI_API_KEY) {
       console.log('[bootstrap] OPENAI_* no configurado, skip pull');
+      app.locals.bootstrap.error = 'OPENAI_API_KEY u OPENAI_VECTOR_STORE_ID no configurados';
       return;
     }
     console.log('[bootstrap] data/eventos vacío — pulling del vector store...');
     const t0 = Date.now();
+    app.locals.bootstrap.active = true;
     const result = await pullFromVectorStore((ev) => {
-      if (ev.type === 'start') console.log(`[bootstrap] ${ev.total} archivos a descargar`);
+      if (ev.type === 'start') {
+        app.locals.bootstrap.total = ev.total;
+        console.log(`[bootstrap] ${ev.total} archivos a descargar`);
+      }
+      if (ev.type === 'progress') {
+        app.locals.bootstrap.current = ev.current;
+      }
       if (ev.type === 'done') console.log(`[bootstrap] listo en ${Date.now() - t0}ms: ${ev.result.events} eventos`);
     });
     if (result?.errors?.length) {
@@ -38,7 +49,10 @@ async function bootstrapFromVectorStore() {
     }
   } catch (err) {
     console.error('[bootstrap] falló:', err.message);
+    app.locals.bootstrap.error = err.message;
     // No crasheamos: el server igual arranca, la UI va a estar vacía hasta pull manual.
+  } finally {
+    app.locals.bootstrap.active = false;
   }
 }
 const app = express();
@@ -146,5 +160,5 @@ if (!authEnabled) {
 
 app.listen(PORT, async () => {
   console.log(`Servidor escuchando en http://localhost:${PORT}`);
-  await bootstrapFromVectorStore();
+  await bootstrapFromVectorStore(app);
 });
