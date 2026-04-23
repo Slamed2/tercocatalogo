@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Editor de Eventos</title>
+    <link rel="stylesheet" href="/css/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Eventos</h1>
+      <a href="/preview" class="btn">👁 Vista previa .md</a>
+      <button id="btn-sync" class="btn">☁ Actualizar vector store</button>
+      <button id="btn-openai" class="btn">↓ Importar desde OpenAI</button>
+      <button id="btn-nuevo" class="btn btn-primary">+ Nuevo evento</button>
+    </header>
+
+    <main>
+      <p id="master-info" class="master-info"></p>
+      <div id="grid" class="grid"></div>
+      <p id="empty" class="empty" hidden>Aún no hay eventos. Creá uno nuevo.</p>
+    </main>
+
+
+    <dialog id="dlg-nuevo">
+      <form method="dialog">
+        <h2>Nuevo evento</h2>
+        <label>Título<input id="nuevo-title" type="text" required /></label>
+        <div class="dlg-actions">
+          <button value="cancel">Cancelar</button>
+          <button id="nuevo-ok" value="default" class="btn-primary">Crear</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="/js/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vista previa .md</title>
+    <link rel="stylesheet" href="/css/styles.css" />
+    <style>
+      .preview-main { padding: 20px; max-width: 1200px; margin: 0 auto; }
+      .tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+      .tab { padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2); color: var(--text); cursor: pointer; font-size: 13px; }
+      .tab.active { background: var(--primary); border-color: var(--primary); color: white; }
+      .md-box { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; min-height: 70vh; overflow: auto; }
+      .md-raw { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; line-height: 1.55; color: var(--text); }
+      .md-render h1, .md-render h2, .md-render h3 { margin-top: 24px; }
+      .md-render h1 { font-size: 22px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+      .md-render h2 { font-size: 18px; }
+      .md-render h3 { font-size: 16px; color: var(--primary); }
+      .md-render hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+      .md-render code { background: var(--panel-2); padding: 2px 5px; border-radius: 3px; font-size: 0.9em; }
+      .md-render a { color: var(--primary); }
+      .md-render blockquote { border-left: 3px solid var(--primary); padding-left: 12px; color: var(--muted); }
+      .stats { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <a href="/" class="back">← Volver</a>
+      <h1>Vista previa del .md ensamblado</h1>
+      <div class="actions">
+        <button id="btn-copy" class="btn">Copiar</button>
+        <button id="btn-download" class="btn">Descargar</button>
+        <button id="btn-sync" class="btn btn-primary">☁ Actualizar vector store</button>
+      </div>
+    </header>
+
+    <main class="preview-main">
+      <div class="stats" id="stats"></div>
+      <div class="tabs">
+        <button class="tab active" data-view="render">Render</button>
+        <button class="tab" data-view="raw">Markdown crudo</button>
+      </div>
+      <div id="box" class="md-box md-render"></div>
+    </main>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+      let rawMd = '';
+      const box = document.getElementById('box');
+      const tabs = document.querySelectorAll('.tab');
+      const stats = document.getElementById('stats');
+      const toast = document.getElementById('toast');
+
+      function showToast(msg, err=false) {
+        toast.textContent = msg;
+        toast.classList.toggle('err', err);
+        toast.hidden = false;
+        setTimeout(() => toast.hidden = true, 3500);
+      }
+
+      function render(view) {
+        if (view === 'raw') {
+          box.className = 'md-box md-raw';
+          box.textContent = rawMd;
+        } else {
+          box.className = 'md-box md-render';
+          box.innerHTML = marked.parse(rawMd);
+        }
+      }
+
+      async function load() {
+        const r = await fetch('/api/events/preview');
+        rawMd = await r.text();
+        const bytes = new Blob([rawMd]).size;
+        stats.textContent = `${rawMd.length.toLocaleString()} caracteres · ${(bytes/1024).toFixed(1)} KB · ${rawMd.split(/\r?\n/).length} líneas`;
+        render('render');
+      }
+
+      tabs.forEach((t) => t.addEventListener('click', () => {
+        tabs.forEach((x) => x.classList.toggle('active', x === t));
+        render(t.dataset.view);
+      }));
+
+      document.getElementById('btn-copy').addEventListener('click', async () => {
+        await navigator.clipboard.writeText(rawMd);
+        showToast('Copiado ✓');
+      });
+
+      document.getElementById('btn-download').addEventListener('click', () => {
+        const blob = new Blob([rawMd], { type: 'text/markdown' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'catalogo.md';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      });
+
+      document.getElementById('btn-sync').addEventListener('click', async () => {
+        const btn = document.getElementById('btn-sync');
+        btn.disabled = true; btn.textContent = 'Subiendo…';
+        try {
+          const r = await fetch('/api/events/sync', { method: 'POST' });
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || 'Error');
+          showToast('Vector store actualizado ✓');
+        } catch (err) {
+          showToast(err.message, true);
+        } finally {
+          btn.disabled = false; btn.textContent = '☁ Actualizar vector store';
+        }
+      });
+
+      load();
+    </script>
+  </body>
+</html>

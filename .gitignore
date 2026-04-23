@@ -1,0 +1,21 @@
+# Dependencias
+node_modules
+
+# Secrets y entorno
+.env
+
+# Datos de eventos (se sincronizan con el vector store, no al repo)
+data/eventos
+data/_master/tmp
+data/_master/assembled.md
+
+# Fuente original de mapas (ya migrados a public/mapas/)
+Mapas eventos TERCO (F)/
+
+# Dumps viejos en raíz
+terco_tour_eventos_con_urls_labeledv2.md
+
+# Logs / sistema
+npm-debug.log
+.DS_Store
+.claude

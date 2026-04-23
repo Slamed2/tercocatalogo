@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Editor de Evento</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.css" />
+    <link rel="stylesheet" href="/css/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a href="/" class="back">← Volver</a>
+      <input id="title" class="title-input" type="text" placeholder="Título" />
+      <div class="actions">
+        <button id="btn-del" class="btn btn-danger">Eliminar</button>
+        <button id="btn-save" class="btn btn-primary">Guardar y sincronizar</button>
+      </div>
+    </header>
+
+    <main class="editor-main">
+      <aside class="side">
+        <div class="img-box">
+          <img id="preview" alt="" />
+          <div id="preview-empty">Sin imagen</div>
+        </div>
+        <label class="btn btn-secondary file-label">
+          Subir imagen
+          <input id="file" type="file" accept="image/*" hidden />
+        </label>
+        <div class="meta">
+          <div><strong>Slug:</strong> <span id="meta-slug"></span></div>
+          <div><strong>OpenAI file:</strong> <span id="meta-file">—</span></div>
+          <div><strong>Último cambio:</strong> <span id="meta-updated">—</span></div>
+        </div>
+
+        <div class="maps-section">
+          <h4>Mapas</h4>
+          <div id="maps-list"></div>
+          <p id="maps-empty" class="maps-empty" hidden>Este evento no tiene línea <code>MAPA_DE</code>.</p>
+          <label class="btn btn-secondary file-label" id="btn-add-map-label">
+            + Agregar mapa
+            <input id="btn-add-map" type="file" accept="image/*" hidden />
+          </label>
+        </div>
+      </aside>
+      <section class="editor-wrap">
+        <textarea id="editor"></textarea>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.js"></script>
+    <script src="/js/editor.js"></script>
+  </body>
+</html>

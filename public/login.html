@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ingresar · Editor de Eventos</title>
+    <style>
+      :root {
+        --bg: #0f1115;
+        --panel: #171a21;
+        --panel-2: #1f232c;
+        --text: #e7e9ee;
+        --muted: #9aa3b2;
+        --primary: #4f8cff;
+        --primary-hover: #3a78ef;
+        --danger: #e05353;
+        --border: #2a2f3a;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background:
+          radial-gradient(1100px 500px at 20% -10%, rgba(79,140,255,0.12), transparent 60%),
+          radial-gradient(900px 400px at 110% 110%, rgba(79,140,255,0.08), transparent 60%),
+          var(--bg);
+        color: var(--text);
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+      .card {
+        width: 100%;
+        max-width: 380px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 28px 26px;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.35);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 4px;
+      }
+      .logo {
+        width: 32px; height: 32px;
+        border-radius: 8px;
+        background: linear-gradient(135deg, var(--primary), #7aa8ff);
+        display: grid; place-items: center;
+        font-weight: 700;
+        color: #0b1220;
+      }
+      h1 { margin: 0; font-size: 18px; font-weight: 600; }
+      p.sub { margin: 6px 0 22px; color: var(--muted); font-size: 13px; }
+      label {
+        display: block;
+        font-size: 12px;
+        color: var(--muted);
+        margin: 12px 0 6px;
+      }
+      input {
+        width: 100%;
+        padding: 10px 12px;
+        background: var(--panel-2);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font-size: 14px;
+        outline: none;
+        transition: border-color .15s;
+      }
+      input:focus { border-color: var(--primary); }
+      button {
+        margin-top: 18px;
+        width: 100%;
+        padding: 11px 14px;
+        border-radius: 8px;
+        border: 1px solid var(--primary);
+        background: var(--primary);
+        color: white;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background .15s;
+      }
+      button:hover { background: var(--primary-hover); }
+      button:disabled { opacity: 0.6; cursor: not-allowed; }
+      .err {
+        margin-top: 14px;
+        padding: 10px 12px;
+        background: rgba(224,83,83,0.1);
+        border: 1px solid rgba(224,83,83,0.3);
+        border-radius: 8px;
+        color: #f4a2a2;
+        font-size: 13px;
+        display: none;
+      }
+      .err.show { display: block; }
+    </style>
+  </head>
+  <body>
+    <form class="card" id="login-form" autocomplete="on">
+      <div class="brand">
+        <div class="logo">E</div>
+        <h1>Editor de Eventos</h1>
+      </div>
+      <p class="sub">Ingresá tus credenciales para continuar</p>
+
+      <label for="user">Usuario</label>
+      <input id="user" name="user" type="text" autocomplete="username" required autofocus />
+
+      <label for="pass">Contraseña</label>
+      <input id="pass" name="pass" type="password" autocomplete="current-password" required />
+
+      <button type="submit" id="submit">Ingresar</button>
+      <div class="err" id="err"></div>
+    </form>
+
+    <script>
+      const form = document.getElementById('login-form');
+      const errBox = document.getElementById('err');
+      const btn = document.getElementById('submit');
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        errBox.classList.remove('show');
+        btn.disabled = true;
+        btn.textContent = 'Ingresando…';
+        try {
+          const res = await fetch('/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              user: document.getElementById('user').value,
+              pass: document.getElementById('pass').value,
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok && data.ok) {
+            window.location.href = '/';
+            return;
+          }
+          errBox.textContent = data.error || 'Credenciales inválidas';
+          errBox.classList.add('show');
+        } catch (err) {
+          errBox.textContent = 'Error de red. Intentá de nuevo.';
+          errBox.classList.add('show');
+        } finally {
+          btn.disabled = false;
+          btn.textContent = 'Ingresar';
+        }
+      });
+    </script>
+  </body>
+</html>
