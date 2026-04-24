@@ -79,7 +79,7 @@ export function makeSlug(input) {
 export { RULES_SLUG, INDEX_SLUG, MASTER_FILENAME };
 
 // Reescribe referencias a /mapas/... como URLs absolutas si hay PUBLIC_BASE_URL.
-// Local queda siempre relativo; sólo en el texto que sube al vector store se expande.
+// Si el texto ya tiene URL absoluta, el regex no matchea (idempotente).
 function rewriteMapasUrls(text) {
   const base = (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
   if (!base) return text;
