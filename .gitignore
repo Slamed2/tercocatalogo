@@ -14,7 +14,11 @@ data/_master/thumbs
 Mapas eventos TERCO (F)/
 
 # Dumps viejos en raíz
-terco_tour_eventos_con_urls_labeledv2.md
+terco_tour_eventos_con_urls_labeled*.md
+
+# Export local para Chatrace (sufijo .nosync excluye iCloud, no se sube al repo)
+export-chatrace/
+export-chatrace.nosync/
 
 # Logs / sistema
 npm-debug.log
