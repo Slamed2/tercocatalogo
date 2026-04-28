@@ -290,6 +290,34 @@ export async function writeListaEventos() {
   return md;
 }
 
+// Sube `lista-eventos.md` al vector store y persiste el file_id en master meta.
+// Reemplaza la versión anterior si existe (delete + create, OpenAI no permite update).
+export async function syncListaEventosFile() {
+  const md = await buildListaEventosMd();
+  const tmpDir = path.join(MASTER_DIR, 'tmp');
+  await fs.mkdir(tmpDir, { recursive: true });
+  const tmpPath = path.join(tmpDir, 'lista-eventos.md');
+  await fs.writeFile(tmpPath, md);
+  // También dejarla en data/_master/ para el endpoint /api/events/lista.
+  await fs.writeFile(path.join(MASTER_DIR, 'lista-eventos.md'), md);
+
+  const master = await readMasterMeta();
+  const newFileId = await syncFileToVectorStore({
+    filePath: tmpPath,
+    filename: 'lista-eventos.md',
+    previousFileId: master.lista_file_id || null,
+  });
+
+  await writeMasterMeta({
+    ...master,
+    lista_file_id: newFileId,
+    updated_at: new Date().toISOString(),
+  });
+
+  await fs.unlink(tmpPath).catch(() => {});
+  return newFileId;
+}
+
 // Construye el .md completo (preview) — índice + preamble + eventos + reglas.
 // Sólo se usa en GET /api/events/preview para que el humano vea el doc
 // ensamblado, NO se sube al vector store.

@@ -160,6 +160,10 @@ app.get('/usage', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'usage.html'));
 });
 
+app.get('/lista', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'lista.html'));
+});
+
 if (!authEnabled) {
   app.get('/healthz', (_req, res) => res.json({ ok: true }));
 }

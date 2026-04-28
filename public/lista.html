@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lista de eventos</title>
+    <link rel="stylesheet" href="/css/styles.css" />
+    <style>
+      .preview-main { padding: 20px; max-width: 900px; margin: 0 auto; }
+      .stats { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+      .md-box {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 20px;
+        min-height: 60vh;
+        overflow: auto;
+      }
+      .md-render h1, .md-render h2, .md-render h3 { color: var(--text); margin-top: 24px; }
+      .md-render h1 { font-size: 22px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+      .md-render h2 { font-size: 17px; color: var(--primary); }
+      .md-render ul { padding-left: 22px; }
+      .md-render li { margin: 3px 0; line-height: 1.5; color: var(--text); }
+      .md-render hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
+      .md-render em { color: var(--muted); }
+      .md-render code {
+        background: var(--panel-2);
+        padding: 2px 5px;
+        border-radius: 3px;
+        font-size: 0.9em;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <a href="/" class="back">← Volver</a>
+      <h1>Lista de eventos</h1>
+      <div class="actions">
+        <button id="btn-copy" class="btn">Copiar</button>
+        <button id="btn-download" class="btn">Descargar</button>
+      </div>
+    </header>
+
+    <main class="preview-main">
+      <div class="stats" id="stats">Cargando…</div>
+      <div id="box" class="md-box md-render"></div>
+    </main>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+      let rawMd = '';
+      const box = document.getElementById('box');
+      const stats = document.getElementById('stats');
+      const toast = document.getElementById('toast');
+
+      function showToast(msg, err = false) {
+        toast.textContent = msg;
+        toast.classList.toggle('err', err);
+        toast.hidden = false;
+        setTimeout(() => toast.hidden = true, 2500);
+      }
+
+      async function load() {
+        try {
+          const r = await fetch('/api/events/lista');
+          rawMd = await r.text();
+          const bytes = new Blob([rawMd]).size;
+          const tokens = Math.round(rawMd.length / 4);
+          stats.textContent =
+            `${rawMd.length.toLocaleString()} chars · ${(bytes / 1024).toFixed(1)} KB · ~${tokens.toLocaleString()} tokens`;
+          box.innerHTML = marked.parse(rawMd);
+        } catch (err) {
+          stats.textContent = 'Error: ' + err.message;
+        }
+      }
+
+      document.getElementById('btn-copy').addEventListener('click', async () => {
+        await navigator.clipboard.writeText(rawMd);
+        showToast('Copiado ✓');
+      });
+
+      document.getElementById('btn-download').addEventListener('click', () => {
+        const blob = new Blob([rawMd], { type: 'text/markdown' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'lista-eventos.md';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      });
+
+      load();
+    </script>
+  </body>
+</html>

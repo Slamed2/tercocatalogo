@@ -82,66 +82,35 @@
       }
       .event-body {
         display: none;
-        padding: 0 16px 16px;
+        padding: 12px 16px 16px;
         border-top: 1px solid var(--border);
       }
       .event-card.open .event-body { display: block; }
-      .event-body pre {
-        background: var(--panel-2);
-        padding: 12px;
-        border-radius: 6px;
-        overflow-x: auto;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 12.5px;
-        line-height: 1.55;
+      .event-body .md-render {
         color: var(--text);
-        white-space: pre-wrap;
-        word-break: break-word;
-        margin: 12px 0 0;
+        font-size: 14px;
+        line-height: 1.6;
       }
-      .event-body .actions {
-        display: flex;
-        gap: 8px;
-        margin-top: 12px;
+      .event-body .md-render h1,
+      .event-body .md-render h2,
+      .event-body .md-render h3 { margin-top: 16px; color: var(--text); }
+      .event-body .md-render code {
+        background: var(--panel-2);
+        padding: 2px 5px;
+        border-radius: 3px;
+        font-size: 0.9em;
       }
-      .event-body .actions .btn {
-        padding: 6px 12px;
-        font-size: 12px;
+      .event-body .md-render a { color: var(--primary); }
+      .event-body .md-render hr {
+        border: none;
+        border-top: 1px solid var(--border);
+        margin: 14px 0;
       }
       .empty-msg {
         padding: 40px;
         text-align: center;
         color: var(--muted);
       }
-      .view-toggle {
-        display: flex;
-        gap: 6px;
-      }
-      .view-toggle .btn {
-        font-size: 12px;
-        padding: 6px 10px;
-      }
-      .view-toggle .btn.active {
-        background: var(--primary);
-        border-color: var(--primary);
-        color: white;
-      }
-      .event-body.rendered pre { display: none; }
-      .event-body.rendered .md-render {
-        padding: 12px 0;
-        color: var(--text);
-        font-size: 14px;
-        line-height: 1.6;
-      }
-      .event-body.rendered .md-render h1,
-      .event-body.rendered .md-render h2,
-      .event-body.rendered .md-render h3 { margin-top: 16px; color: var(--text); }
-      .event-body.rendered .md-render code {
-        background: var(--panel-2); padding: 2px 5px; border-radius: 3px; font-size: 0.9em;
-      }
-      .event-body.rendered .md-render a { color: var(--primary); }
-      .event-body.rendered .md-render hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
-      .event-body:not(.rendered) .md-render { display: none; }
     </style>
   </head>
   <body>
@@ -224,16 +193,7 @@
               ${eventTagHtml(e)}
               <span class="event-meta">${(e.content || '').length} chars</span>
             </div>
-            <div class="event-body">
-              <div class="actions">
-                <div class="view-toggle">
-                  <button class="btn view-raw active" data-view="raw">Markdown</button>
-                  <button class="btn view-rendered" data-view="rendered">Render</button>
-                </div>
-                <button class="btn btn-copy">Copiar</button>
-                <a class="btn" href="/editor/${encodeURIComponent(e.slug)}">Editar</a>
-              </div>
-              <pre>${escapeHtml(e.content || '(vacío)')}</pre>
+            <div class="event-body rendered">
               <div class="md-render">${e.content ? marked.parse(e.content) : '<em>vacío</em>'}</div>
             </div>`;
           list.appendChild(card);
@@ -273,39 +233,12 @@
         }
       }
 
-      // Toggle expand/collapse de cada card.
-      list.addEventListener('click', async (ev) => {
+      // Toggle expand/collapse de cada card al click del header.
+      list.addEventListener('click', (ev) => {
         const card = ev.target.closest('.event-card');
         if (!card) return;
-
-        // Header click → toggle.
         if (ev.target.closest('.event-header')) {
           card.classList.toggle('open');
-          return;
-        }
-
-        // Botón de toggle de vista (raw / rendered).
-        const viewBtn = ev.target.closest('[data-view]');
-        if (viewBtn) {
-          ev.stopPropagation();
-          const body = card.querySelector('.event-body');
-          const view = viewBtn.dataset.view;
-          body.classList.toggle('rendered', view === 'rendered');
-          card.querySelectorAll('[data-view]').forEach((b) => {
-            b.classList.toggle('active', b === viewBtn);
-          });
-          return;
-        }
-
-        // Botón copiar.
-        if (ev.target.closest('.btn-copy')) {
-          ev.stopPropagation();
-          const slug = card.dataset.slug;
-          const e = allEvents.find((x) => x.slug === slug);
-          if (e) {
-            await navigator.clipboard.writeText(e.content || '');
-            showToast('Copiado: ' + e.title);
-          }
         }
       });
 

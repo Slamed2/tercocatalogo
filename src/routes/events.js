@@ -23,6 +23,7 @@ import {
   buildFullMd,
   buildListaEventosMd,
   writeListaEventos,
+  syncListaEventosFile,
   DATA_DIR,
   RULES_SLUG,
   INDEX_SLUG,
@@ -298,7 +299,7 @@ router.post('/openai/import-local', upload.single('file'), async (req, res) => {
     } catch (err) {
       console.error('syncMasterFile:', err.message);
     }
-    try { await writeListaEventos(); } catch (err) { console.error('write lista-eventos:', err.message); }
+    try { await syncListaEventosFile(); } catch (err) { console.error('sync lista-eventos:', err.message); }
 
     res.json({
       ok: true,
@@ -362,15 +363,15 @@ router.post('/', async (req, res) => {
     else order.push(slug);
     await writeMasterMeta({ ...master, order });
 
-    // Auto-sync: subir el archivo vacío + actualizar el catálogo + regenerar lista.
+    // Auto-sync: subir el archivo vacío + actualizar el catálogo + sync lista al VS.
     const [eventRes, catalogRes, listaRes] = await Promise.allSettled([
       syncEventFile(slug),
       syncMasterFile(),
-      writeListaEventos(),
+      syncListaEventosFile(),
     ]);
     if (eventRes.status === 'rejected') console.error('auto-sync evento nuevo falló:', eventRes.reason?.message);
     if (catalogRes.status === 'rejected') console.error('auto-sync catálogo falló:', catalogRes.reason?.message);
-    if (listaRes.status === 'rejected') console.error('write lista-eventos falló:', listaRes.reason?.message);
+    if (listaRes.status === 'rejected') console.error('sync lista-eventos falló:', listaRes.reason?.message);
 
     res.json({ slug, title });
   } catch (err) {
@@ -398,11 +399,11 @@ router.put('/:slug', async (req, res) => {
     const [eventRes, catalogRes, listaRes] = await Promise.allSettled([
       syncEventFile(slug),
       syncMasterFile(),
-      writeListaEventos(),
+      syncListaEventosFile(),
     ]);
     if (eventRes.status === 'rejected') console.error('auto-sync evento falló:', eventRes.reason?.message);
     if (catalogRes.status === 'rejected') console.error('auto-sync catálogo falló:', catalogRes.reason?.message);
-    if (listaRes.status === 'rejected') console.error('write lista-eventos falló:', listaRes.reason?.message);
+    if (listaRes.status === 'rejected') console.error('sync lista-eventos falló:', listaRes.reason?.message);
     res.json({
       ok: true,
       openai_file_id: eventRes.status === 'fulfilled' ? eventRes.value : null,
@@ -474,7 +475,7 @@ router.delete('/:slug', async (req, res) => {
     const { slug } = req.params;
     await deleteEventCompletely(slug);
     try { await syncMasterFile(); } catch (err) { console.error('syncMasterFile:', err.message); }
-    try { await writeListaEventos(); } catch (err) { console.error('write lista-eventos:', err.message); }
+    try { await syncListaEventosFile(); } catch (err) { console.error('sync lista-eventos:', err.message); }
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
