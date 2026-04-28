@@ -149,30 +149,12 @@ export async function syncEventFile(slug) {
   return newFileId;
 }
 
-// Sube el archivo base (catálogo) con índice + reglas comunes.
+// LEGACY — el catálogo `terco-tour-catalogo.md` ya no se sube al VS.
+// `lista-eventos.md` cumple la función de "índice" y los detalles vienen de los
+// archivos individuales por evento. Esta función queda como no-op para no
+// romper llamadas existentes desde events.js (POST/PUT/DELETE/import).
 export async function syncCatalogFile() {
-  const master = await readMasterMeta();
-  const content = rewriteMapasUrls(await buildCatalogIndexMd());
-
-  const tmpDir = path.join(MASTER_DIR, 'tmp');
-  await fs.mkdir(tmpDir, { recursive: true });
-  const tmpPath = path.join(tmpDir, MASTER_FILENAME);
-  await fs.writeFile(tmpPath, content);
-
-  const newFileId = await syncFileToVectorStore({
-    filePath: tmpPath,
-    filename: MASTER_FILENAME,
-    previousFileId: master.openai_file_id || null,
-  });
-
-  await writeMasterMeta({
-    ...master,
-    openai_file_id: newFileId,
-    updated_at: new Date().toISOString(),
-  });
-
-  await fs.unlink(tmpPath).catch(() => {});
-  return newFileId;
+  return null;
 }
 
 // Alias legacy: syncIndexFile ahora sube el catálogo.
