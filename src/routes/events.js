@@ -27,6 +27,7 @@ import {
   DATA_DIR,
   RULES_SLUG,
   INDEX_SLUG,
+  RESERVED_SLUGS,
 } from '../services/master.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -344,6 +345,9 @@ router.post('/', async (req, res) => {
     if (!title) return res.status(400).json({ error: 'title requerido' });
     const slug = makeSlug(title);
     if (!slug) return res.status(400).json({ error: 'title inválido' });
+    if (RESERVED_SLUGS.has(slug)) {
+      return res.status(400).json({ error: `nombre reservado por el sistema: "${slug}"` });
+    }
     const dir = path.join(DATA_DIR, slug);
     if (fsSync.existsSync(dir)) return res.status(409).json({ error: 'ya existe' });
     await fs.mkdir(dir, { recursive: true });

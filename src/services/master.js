@@ -102,6 +102,15 @@ function buildFileContent(meta, content) {
 // contenido y reducir costo de file_search.
 const VS_EXCLUDE = new Set([RULES_SLUG, 'agente-reservas']);
 
+// Slugs reservados — no se pueden usar como nombre de evento. Cubre los slugs
+// internos y los que se usan para archivos generados (lista-eventos, etc).
+export const RESERVED_SLUGS = new Set([
+  RULES_SLUG,
+  INDEX_SLUG,
+  'agente-reservas',
+  'lista-eventos',
+]);
+
 export async function syncEventFile(slug) {
   const meta = await readEventMeta(slug);
   if (!meta) throw new Error(`No existe el evento ${slug}`);
@@ -521,14 +530,18 @@ export async function pullFromVectorStore(onProgress) {
   const files = await listVectorStoreFiles();
 
   const catalogFile = files.find((f) => f.filename === MASTER_FILENAME);
-  const otherFiles = files.filter((f) => f.filename !== MASTER_FILENAME);
+
+  // Archivos derivados que NO son eventos — generados automáticamente desde el
+  // repo, no se "pullean" porque se regeneran solos al sincronizar eventos.
+  const DERIVED = new Set([MASTER_FILENAME, 'lista-eventos.md']);
+  const otherFiles = files.filter((f) => !DERIVED.has(f.filename));
 
   // Si sólo existe el catálogo (estado single-file), parsearlo.
   if (catalogFile && otherFiles.length === 0) {
     return await pullFromSingleMaster(catalogFile, emit);
   }
 
-  // Multi-archivo: ignorar el catálogo (es derivado).
+  // Multi-archivo: ignorar archivos derivados (catálogo + lista).
   const workFiles = otherFiles;
   emit({ type: 'start', total: workFiles.length });
 
