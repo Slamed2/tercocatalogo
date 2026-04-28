@@ -45,6 +45,37 @@ export async function deleteFromVectorStore(fileId) {
   }
 }
 
+// Busca y borra del VS + storage cualquier archivo con ese filename, EXCEPTO el
+// que se acaba de subir (`exceptId`). Útil para archivos "singleton" como
+// `lista-eventos.md` o `terco-tour-catalogo.md` donde el meta.json puede estar
+// desactualizado entre deploys (ver bug de huérfanos en abril 2026).
+//
+// IMPORTANTE: no usar para archivos por evento — ahí el `previousFileId` del
+// meta es suficiente y este sweep haría 1 retrieve por archivo del VS (lento).
+export async function dedupeByFilename(filename, exceptId) {
+  if (!VECTOR_STORE_ID || !filename) return [];
+  const removed = [];
+  let after;
+  while (true) {
+    const page = await client.vectorStores.files.list(VECTOR_STORE_ID, { limit: 100, after });
+    for (const vsf of page.data) {
+      if (vsf.id === exceptId) continue;
+      try {
+        const f = await client.files.retrieve(vsf.id);
+        if (f.filename === filename) {
+          try { await client.vectorStores.files.del(VECTOR_STORE_ID, vsf.id); } catch {}
+          try { await client.files.del(vsf.id); } catch {}
+          removed.push(vsf.id);
+        }
+      } catch {}
+    }
+    if (!page.has_more) break;
+    after = page.data[page.data.length - 1]?.id;
+    if (!after) break;
+  }
+  return removed;
+}
+
 export async function listVectorStoreFiles() {
   if (!VECTOR_STORE_ID) throw new Error('OPENAI_VECTOR_STORE_ID no configurado');
   const result = [];

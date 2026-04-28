@@ -16,6 +16,7 @@ import {
   deleteFromVectorStore,
   listVectorStoreFiles,
   downloadFileContent,
+  dedupeByFilename,
 } from './openai.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -282,7 +283,9 @@ export async function writeListaEventos() {
 }
 
 // Sube `lista-eventos.md` al vector store y persiste el file_id en master meta.
-// Reemplaza la versión anterior si existe (delete + create, OpenAI no permite update).
+// Después del upload, hace `dedupeByFilename` para eliminar cualquier huérfano
+// con el mismo nombre — esto previene que el meta.json desactualizado entre
+// deploys deje archivos huérfanos (bug de abril 2026 con easypanel).
 export async function syncListaEventosFile() {
   const md = await buildListaEventosMd();
   const tmpDir = path.join(MASTER_DIR, 'tmp');
@@ -298,6 +301,17 @@ export async function syncListaEventosFile() {
     filename: 'lista-eventos.md',
     previousFileId: master.lista_file_id || null,
   });
+
+  // Sweep adicional: cualquier otra `lista-eventos.md` que quedó huérfana
+  // (de deploys anteriores donde el meta no estaba sincronizado).
+  try {
+    const removed = await dedupeByFilename('lista-eventos.md', newFileId);
+    if (removed.length) {
+      console.log(`syncListaEventosFile: dedupe eliminó ${removed.length} huérfano(s):`, removed);
+    }
+  } catch (err) {
+    console.warn('dedupeByFilename falló:', err.message);
+  }
 
   await writeMasterMeta({
     ...master,
