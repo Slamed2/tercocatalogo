@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Consumo OpenAI · tercotour</title>
+    <link rel="stylesheet" href="/css/styles.css" />
+    <style>
+      .usage-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 14px;
+        margin: 14px 0;
+      }
+      .stat {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+      }
+      .stat .label {
+        font-size: 12px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .stat .value {
+        font-size: 28px;
+        font-weight: 600;
+        margin: 6px 0;
+        color: var(--text);
+        font-variant-numeric: tabular-nums;
+      }
+      .stat .sub {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .breakdown,
+      .series {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+        margin: 14px 0;
+      }
+      .breakdown h3,
+      .series h3 {
+        margin: 0 0 8px;
+        font-size: 15px;
+        color: var(--text);
+      }
+      .breakdown .row {
+        display: flex;
+        justify-content: space-between;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--border);
+        font-size: 14px;
+      }
+      .breakdown .row:last-child { border-bottom: none; }
+      .breakdown .cat { color: var(--text); }
+      .breakdown .amt {
+        font-variant-numeric: tabular-nums;
+        color: var(--text);
+        font-weight: 500;
+      }
+      .breakdown .amt.zero { color: var(--muted); opacity: 0.6; }
+      .series table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+      .series th, .series td {
+        text-align: right;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--border);
+        font-variant-numeric: tabular-nums;
+        color: var(--text);
+      }
+      .series th:first-child, .series td:first-child { text-align: left; }
+      .series th {
+        color: var(--muted);
+        font-weight: 500;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .series .bar {
+        display: inline-block;
+        height: 6px;
+        background: var(--primary);
+        border-radius: 3px;
+        vertical-align: middle;
+        margin-left: 6px;
+      }
+      .series tr.today td {
+        font-weight: 600;
+        background: rgba(79, 140, 255, 0.1);
+      }
+      .meta {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 13px;
+        color: var(--muted);
+        margin-top: 14px;
+      }
+      .meta button { font-size: 13px; padding: 4px 10px; }
+      .err {
+        background: rgba(224, 83, 83, 0.1);
+        border: 1px solid var(--danger);
+        color: var(--danger);
+        padding: 14px;
+        border-radius: 8px;
+        margin: 14px 0;
+      }
+      select.btn {
+        font-size: 14px;
+        padding: 8px 12px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Consumo OpenAI</h1>
+      <a href="/" class="btn">Volver</a>
+      <select id="range" class="btn">
+        <option value="1">Hoy</option>
+        <option value="7" selected>Últimos 7 días</option>
+        <option value="14">Últimos 14 días</option>
+        <option value="30">Últimos 30 días</option>
+      </select>
+    </header>
+
+    <main>
+      <div id="err" class="err" hidden></div>
+
+      <div class="usage-grid">
+        <div class="stat">
+          <div class="label">Hoy</div>
+          <div class="value" id="stat-today">—</div>
+          <div class="sub" id="stat-today-day"></div>
+        </div>
+        <div class="stat">
+          <div class="label">Total período</div>
+          <div class="value" id="stat-total">—</div>
+          <div class="sub" id="stat-total-days"></div>
+        </div>
+        <div class="stat">
+          <div class="label">Promedio diario</div>
+          <div class="value" id="stat-avg">—</div>
+          <div class="sub">Sin contar hoy (parcial)</div>
+        </div>
+        <div class="stat">
+          <div class="label">Proyección mensual</div>
+          <div class="value" id="stat-projection">—</div>
+          <div class="sub">Promedio × 30 días</div>
+        </div>
+      </div>
+
+      <div class="breakdown">
+        <h3>Desglose de hoy</h3>
+        <div id="breakdown-today">Cargando…</div>
+      </div>
+
+      <div class="series">
+        <h3>Por día</h3>
+        <table id="series-table">
+          <thead>
+            <tr>
+              <th>Día</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="meta">
+        <span id="meta-info"></span>
+      </div>
+    </main>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const fmt = (v) => '$' + v.toFixed(2);
+      const fmtSmall = (v) => v < 0.01 ? '$<0.01' : '$' + v.toFixed(2);
+
+      // Las fechas vienen como "YYYY-MM-DD" representando el día Argentina.
+      // Las parseamos como UTC y formateamos en es-AR sin shift de zona, para
+      // que "2026-04-28" muestre "28 abr 2026" sin importar el browser TZ.
+      function fmtDay(isoDay) {
+        const [y, m, d] = isoDay.split('-').map(Number);
+        const dt = new Date(Date.UTC(y, m - 1, d, 12)); // mediodía UTC, evita borde
+        return dt.toLocaleDateString('es-AR', {
+          day: 'numeric', month: 'short', timeZone: 'UTC',
+        });
+      }
+      function fmtDateTime(iso) {
+        return new Date(iso).toLocaleString('es-AR', {
+          day: '2-digit', month: '2-digit', year: 'numeric',
+          hour: '2-digit', minute: '2-digit',
+          timeZone: 'America/Argentina/Buenos_Aires',
+        });
+      }
+
+      async function load() {
+        const days = $('range').value;
+        $('err').hidden = true;
+        try {
+          const r = await fetch(`/api/usage?days=${days}`);
+          if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            throw new Error(err.error || `HTTP ${r.status}`);
+          }
+          const data = await r.json();
+          render(data);
+        } catch (err) {
+          $('err').hidden = false;
+          $('err').textContent = 'Error: ' + err.message;
+        }
+      }
+
+      function render(data) {
+        $('stat-today').textContent = fmt(data.today.total);
+        $('stat-today-day').textContent = fmtDay(data.today.day) + ' · hora Argentina';
+        $('stat-total').textContent = fmt(data.summary.total_period);
+        $('stat-total-days').textContent = `${data.days} días`;
+        $('stat-avg').textContent = fmt(data.summary.avg_per_day);
+        $('stat-projection').textContent = fmt(data.summary.monthly_projection);
+
+        // Desglose hoy.
+        const cats = data.today.categories;
+        const sortedCats = Object.entries(cats).sort((a, b) => b[1] - a[1]);
+        const breakdownEl = $('breakdown-today');
+        if (!sortedCats.length) {
+          breakdownEl.innerHTML = '<p style="color:#6b7280;">Sin actividad hoy.</p>';
+        } else {
+          breakdownEl.innerHTML = sortedCats.map(([cat, amt]) =>
+            `<div class="row"><span class="cat">${escapeHtml(cat)}</span><span class="amt ${amt < 0.005 ? 'zero' : ''}">${fmtSmall(amt)}</span></div>`
+          ).join('');
+        }
+
+        // Tabla por día.
+        const todayKey = data.today.day;
+        const tbody = $('series-table').querySelector('tbody');
+        tbody.innerHTML = data.series.map((d) => {
+          const isToday = d.day === todayKey;
+          return `
+            <tr class="${isToday ? 'today' : ''}">
+              <td>${fmtDay(d.day)}${isToday ? ' (hoy)' : ''}</td>
+              <td>${fmt(d.total)}</td>
+            </tr>`;
+        }).join('');
+
+        $('meta-info').textContent =
+          `Proyecto: ${data.project_id} · Actualizado: ${fmtDateTime(data.generated_at)}`;
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (m) => ({
+          '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+        }[m]));
+      }
+
+      $('range').addEventListener('change', load);
+
+      // Auto-refresh cada 60s. Pausa cuando la pestaña no está visible para
+      // no quemar calls innecesariamente, y recarga al volver a foco.
+      const REFRESH_MS = 60_000;
+      let refreshTimer = null;
+      function startAutoRefresh() {
+        stopAutoRefresh();
+        refreshTimer = setInterval(load, REFRESH_MS);
+      }
+      function stopAutoRefresh() {
+        if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+      }
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+          stopAutoRefresh();
+        } else {
+          load();
+          startAutoRefresh();
+        }
+      });
+
+      load();
+      startAutoRefresh();
+    </script>
+  </body>
+</html>

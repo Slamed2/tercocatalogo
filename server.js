@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import eventsRouter from './src/routes/events.js';
 import thumbsRouter from './src/routes/thumbs.js';
+import usageRouter from './src/routes/usage.js';
 import { pullFromVectorStore } from './src/services/master.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -145,6 +146,7 @@ app.use('/data/eventos', express.static(path.join(__dirname, 'data/eventos')));
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.use('/api/events', eventsRouter);
+app.use('/api/usage', usageRouter);
 
 app.get('/editor/:slug', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'editor.html'));
@@ -152,6 +154,10 @@ app.get('/editor/:slug', (_req, res) => {
 
 app.get('/preview', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'preview.html'));
+});
+
+app.get('/usage', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'usage.html'));
 });
 
 if (!authEnabled) {
