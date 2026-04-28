@@ -97,9 +97,24 @@ function buildFileContent(meta, content) {
 }
 
 // Sube un archivo por evento.
+// Slugs que NO se suben al vector store. Sus reglas viven en el system prompt
+// del agente principal de Chatrace, no en archivos del VS — para evitar duplicar
+// contenido y reducir costo de file_search.
+const VS_EXCLUDE = new Set([RULES_SLUG, 'agente-reservas']);
+
 export async function syncEventFile(slug) {
   const meta = await readEventMeta(slug);
   if (!meta) throw new Error(`No existe el evento ${slug}`);
+
+  // Si el slug está en la blocklist, no subir al VS. Si tenía un file_id previo,
+  // dejarlo como null para que `meta.json` no quede con una referencia rota.
+  if (VS_EXCLUDE.has(slug)) {
+    if (meta.openai_file_id) {
+      await writeEventMeta(slug, { ...meta, openai_file_id: null, updated_at: new Date().toISOString() });
+    }
+    return null;
+  }
+
   const content = await readEventContent(slug);
   const fullContent = buildFileContent(meta, content);
 
@@ -210,6 +225,69 @@ export async function buildCatalogIndexMd() {
   }
 
   return lines.join('\n') + '\n';
+}
+
+// Construye el .md "lista de eventos" — solo títulos, ultra-compacto.
+// Pensado para ir DENTRO del system prompt del agente (no en el vector store):
+// el agente "ve" toda la lista sin tener que llamar file_search para preguntas
+// como "qué eventos tienen" / "qué hay disponible". Ahorra calls + chunks.
+//
+// Distingue eventos con info cargada (tienen content.md no vacío) de los que
+// están registrados pero sin info operativa todavía (los marca aparte).
+export async function buildListaEventosMd() {
+  const { events } = await loadAllEventsInOrder();
+  // Slugs reservados que no son eventos comerciales.
+  const NON_EVENT = new Set([RULES_SLUG, INDEX_SLUG, 'agente-reservas']);
+  const regulares = events.filter((e) =>
+    !e.meta.is_rules && !e.meta.is_index && !NON_EVENT.has(e.slug)
+  );
+
+  const conInfo = [];
+  const sinInfo = [];
+  for (const e of regulares) {
+    const trimmed = (e.content || '').trim();
+    // "Sin info cargada" = content.md vacío o casi vacío.
+    if (!trimmed || trimmed.length < 20 || trimmed === '---') {
+      sinInfo.push(e.title);
+    } else {
+      conInfo.push(e.title);
+    }
+  }
+  conInfo.sort((a, b) => a.localeCompare(b, 'es'));
+  sinInfo.sort((a, b) => a.localeCompare(b, 'es'));
+
+  const lines = [
+    '# Lista de eventos disponibles',
+    '',
+    `Total: ${conInfo.length} eventos con info operativa.`,
+    '',
+    '## Eventos disponibles',
+    '',
+    ...conInfo.map((t) => `- ${t}`),
+  ];
+
+  if (sinInfo.length) {
+    lines.push(
+      '',
+      '## Eventos sin info cargada',
+      '',
+      'Estos eventos existen en el sistema pero no tienen info operativa todavía. Para consultas sobre ellos, derivar al asesor.',
+      '',
+      ...sinInfo.map((t) => `- ${t}`),
+    );
+  }
+
+  lines.push('', `_Última actualización: ${new Date().toISOString()}_`, '');
+  return lines.join('\n');
+}
+
+// Persiste la lista de eventos a disco. Se invoca desde POST/PUT/DELETE de
+// eventos para mantener el archivo sincronizado sin trabajo manual.
+export async function writeListaEventos() {
+  const md = await buildListaEventosMd();
+  await fs.mkdir(MASTER_DIR, { recursive: true });
+  await fs.writeFile(path.join(MASTER_DIR, 'lista-eventos.md'), md);
+  return md;
 }
 
 // Construye el .md completo (preview) — índice + preamble + eventos + reglas.

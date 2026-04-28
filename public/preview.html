@@ -3,98 +3,320 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Vista previa .md</title>
+    <title>Vista previa</title>
     <link rel="stylesheet" href="/css/styles.css" />
     <style>
       .preview-main { padding: 20px; max-width: 1200px; margin: 0 auto; }
-      .tabs { display: flex; gap: 8px; margin-bottom: 12px; }
-      .tab { padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2); color: var(--text); cursor: pointer; font-size: 13px; }
-      .tab.active { background: var(--primary); border-color: var(--primary); color: white; }
-      .md-box { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; min-height: 70vh; overflow: auto; }
-      .md-raw { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; line-height: 1.55; color: var(--text); }
-      .md-render h1, .md-render h2, .md-render h3 { margin-top: 24px; }
-      .md-render h1 { font-size: 22px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
-      .md-render h2 { font-size: 18px; }
-      .md-render h3 { font-size: 16px; color: var(--primary); }
-      .md-render hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
-      .md-render code { background: var(--panel-2); padding: 2px 5px; border-radius: 3px; font-size: 0.9em; }
-      .md-render a { color: var(--primary); }
-      .md-render blockquote { border-left: 3px solid var(--primary); padding-left: 12px; color: var(--muted); }
-      .stats { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+      .toolbar {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 14px;
+      }
+      .toolbar input[type="search"] {
+        flex: 1;
+        padding: 10px 14px;
+        background: var(--panel-2);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font-size: 14px;
+      }
+      .toolbar input[type="search"]::placeholder { color: var(--muted); }
+      .stats {
+        color: var(--muted);
+        font-size: 12px;
+        margin-bottom: 14px;
+      }
+      .event-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .event-card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        overflow: hidden;
+      }
+      .event-card.special { border-color: var(--primary); }
+      .event-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 16px;
+        cursor: pointer;
+        user-select: none;
+      }
+      .event-header:hover { background: var(--panel-2); }
+      .event-header .chev {
+        width: 12px; height: 12px;
+        border-right: 2px solid var(--muted);
+        border-bottom: 2px solid var(--muted);
+        transform: rotate(-45deg);
+        transition: transform 0.15s;
+        flex-shrink: 0;
+      }
+      .event-card.open .event-header .chev { transform: rotate(45deg); }
+      .event-title {
+        flex: 1;
+        font-weight: 500;
+        font-size: 15px;
+        color: var(--text);
+      }
+      .event-tag {
+        font-size: 11px;
+        color: var(--muted);
+        background: var(--panel-2);
+        padding: 3px 8px;
+        border-radius: 6px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .event-tag.rules { background: rgba(79, 140, 255, 0.15); color: var(--primary); }
+      .event-tag.empty { background: rgba(224, 83, 83, 0.1); color: var(--danger); }
+      .event-meta {
+        font-size: 11px;
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+      }
+      .event-body {
+        display: none;
+        padding: 0 16px 16px;
+        border-top: 1px solid var(--border);
+      }
+      .event-card.open .event-body { display: block; }
+      .event-body pre {
+        background: var(--panel-2);
+        padding: 12px;
+        border-radius: 6px;
+        overflow-x: auto;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12.5px;
+        line-height: 1.55;
+        color: var(--text);
+        white-space: pre-wrap;
+        word-break: break-word;
+        margin: 12px 0 0;
+      }
+      .event-body .actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+      }
+      .event-body .actions .btn {
+        padding: 6px 12px;
+        font-size: 12px;
+      }
+      .empty-msg {
+        padding: 40px;
+        text-align: center;
+        color: var(--muted);
+      }
+      .view-toggle {
+        display: flex;
+        gap: 6px;
+      }
+      .view-toggle .btn {
+        font-size: 12px;
+        padding: 6px 10px;
+      }
+      .view-toggle .btn.active {
+        background: var(--primary);
+        border-color: var(--primary);
+        color: white;
+      }
+      .event-body.rendered pre { display: none; }
+      .event-body.rendered .md-render {
+        padding: 12px 0;
+        color: var(--text);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      .event-body.rendered .md-render h1,
+      .event-body.rendered .md-render h2,
+      .event-body.rendered .md-render h3 { margin-top: 16px; color: var(--text); }
+      .event-body.rendered .md-render code {
+        background: var(--panel-2); padding: 2px 5px; border-radius: 3px; font-size: 0.9em;
+      }
+      .event-body.rendered .md-render a { color: var(--primary); }
+      .event-body.rendered .md-render hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+      .event-body:not(.rendered) .md-render { display: none; }
     </style>
   </head>
   <body>
     <header class="topbar">
       <a href="/" class="back">← Volver</a>
-      <h1>Vista previa del .md ensamblado</h1>
+      <h1>Vista previa de eventos</h1>
       <div class="actions">
-        <button id="btn-copy" class="btn">Copiar</button>
-        <button id="btn-download" class="btn">Descargar</button>
+        <button id="btn-expand" class="btn">Expandir todo</button>
+        <button id="btn-collapse" class="btn">Colapsar todo</button>
       </div>
     </header>
 
     <main class="preview-main">
-      <div class="stats" id="stats"></div>
-      <div class="tabs">
-        <button class="tab active" data-view="render">Render</button>
-        <button class="tab" data-view="raw">Markdown crudo</button>
+      <div class="toolbar">
+        <input id="search" type="search" placeholder="Buscar por título o contenido…" autocomplete="off" />
       </div>
-      <div id="box" class="md-box md-render"></div>
+      <div class="stats" id="stats"></div>
+      <div class="event-list" id="list"></div>
+      <div class="empty-msg" id="empty" hidden>No hay resultados.</div>
     </main>
 
     <div id="toast" class="toast" hidden></div>
 
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>
-      let rawMd = '';
-      const box = document.getElementById('box');
-      const tabs = document.querySelectorAll('.tab');
-      const stats = document.getElementById('stats');
-      const toast = document.getElementById('toast');
+      const $ = (id) => document.getElementById(id);
+      const list = $('list');
+      const empty = $('empty');
+      const stats = $('stats');
+      const search = $('search');
+      const toast = $('toast');
 
-      function showToast(msg, err=false) {
+      let allEvents = [];
+
+      function showToast(msg, err = false) {
         toast.textContent = msg;
         toast.classList.toggle('err', err);
         toast.hidden = false;
-        setTimeout(() => toast.hidden = true, 3500);
+        setTimeout(() => toast.hidden = true, 2500);
       }
 
-      function render(view) {
-        if (view === 'raw') {
-          box.className = 'md-box md-raw';
-          box.textContent = rawMd;
-        } else {
-          box.className = 'md-box md-render';
-          box.innerHTML = marked.parse(rawMd);
+      function normalize(s) {
+        return String(s || '')
+          .toLowerCase()
+          .normalize('NFD').replace(/[̀-ͯ]/g, '')
+          .trim();
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (m) => ({
+          '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+        }[m]));
+      }
+
+      function eventTagHtml(e) {
+        const tags = [];
+        if (e.is_rules) tags.push('<span class="event-tag rules">Reglas</span>');
+        if (e.is_special) tags.push('<span class="event-tag rules">Especial</span>');
+        if (!(e.content || '').trim() || (e.content || '').trim() === '---') {
+          tags.push('<span class="event-tag empty">Sin info</span>');
+        }
+        return tags.join('');
+      }
+
+      function renderList(events) {
+        list.innerHTML = '';
+        if (!events.length) {
+          empty.hidden = false;
+          return;
+        }
+        empty.hidden = true;
+        for (const e of events) {
+          const card = document.createElement('div');
+          card.className = 'event-card' + (e.is_rules || e.is_special ? ' special' : '');
+          card.dataset.slug = e.slug;
+          card.innerHTML = `
+            <div class="event-header">
+              <span class="chev"></span>
+              <span class="event-title">${escapeHtml(e.title)}</span>
+              ${eventTagHtml(e)}
+              <span class="event-meta">${(e.content || '').length} chars</span>
+            </div>
+            <div class="event-body">
+              <div class="actions">
+                <div class="view-toggle">
+                  <button class="btn view-raw active" data-view="raw">Markdown</button>
+                  <button class="btn view-rendered" data-view="rendered">Render</button>
+                </div>
+                <button class="btn btn-copy">Copiar</button>
+                <a class="btn" href="/editor/${encodeURIComponent(e.slug)}">Editar</a>
+              </div>
+              <pre>${escapeHtml(e.content || '(vacío)')}</pre>
+              <div class="md-render">${e.content ? marked.parse(e.content) : '<em>vacío</em>'}</div>
+            </div>`;
+          list.appendChild(card);
         }
       }
 
-      async function load() {
-        const r = await fetch('/api/events/preview');
-        rawMd = await r.text();
-        const bytes = new Blob([rawMd]).size;
-        stats.textContent = `${rawMd.length.toLocaleString()} caracteres · ${(bytes/1024).toFixed(1)} KB · ${rawMd.split(/\r?\n/).length} líneas`;
-        render('render');
+      function applyFilter() {
+        const q = normalize(search.value);
+        if (!q) {
+          renderList(allEvents);
+          updateStats(allEvents);
+          return;
+        }
+        const filtered = allEvents.filter((e) =>
+          normalize(e.title).includes(q) || normalize(e.content).includes(q)
+        );
+        renderList(filtered);
+        updateStats(filtered);
       }
 
-      tabs.forEach((t) => t.addEventListener('click', () => {
-        tabs.forEach((x) => x.classList.toggle('active', x === t));
-        render(t.dataset.view);
-      }));
+      function updateStats(events) {
+        const total = events.length;
+        const totalBytes = events.reduce((s, e) => s + (e.content || '').length, 0);
+        const empty = events.filter((e) => !(e.content || '').trim() || (e.content || '').trim() === '---').length;
+        stats.textContent = `${total} eventos · ${(totalBytes / 1024).toFixed(1)} KB total · ${empty} sin info`;
+      }
 
-      document.getElementById('btn-copy').addEventListener('click', async () => {
-        await navigator.clipboard.writeText(rawMd);
-        showToast('Copiado ✓');
+      async function load() {
+        try {
+          const r = await fetch('/api/events/all');
+          const data = await r.json();
+          allEvents = data.events || [];
+          applyFilter();
+        } catch (err) {
+          empty.hidden = false;
+          empty.textContent = 'Error: ' + err.message;
+        }
+      }
+
+      // Toggle expand/collapse de cada card.
+      list.addEventListener('click', async (ev) => {
+        const card = ev.target.closest('.event-card');
+        if (!card) return;
+
+        // Header click → toggle.
+        if (ev.target.closest('.event-header')) {
+          card.classList.toggle('open');
+          return;
+        }
+
+        // Botón de toggle de vista (raw / rendered).
+        const viewBtn = ev.target.closest('[data-view]');
+        if (viewBtn) {
+          ev.stopPropagation();
+          const body = card.querySelector('.event-body');
+          const view = viewBtn.dataset.view;
+          body.classList.toggle('rendered', view === 'rendered');
+          card.querySelectorAll('[data-view]').forEach((b) => {
+            b.classList.toggle('active', b === viewBtn);
+          });
+          return;
+        }
+
+        // Botón copiar.
+        if (ev.target.closest('.btn-copy')) {
+          ev.stopPropagation();
+          const slug = card.dataset.slug;
+          const e = allEvents.find((x) => x.slug === slug);
+          if (e) {
+            await navigator.clipboard.writeText(e.content || '');
+            showToast('Copiado: ' + e.title);
+          }
+        }
       });
 
-      document.getElementById('btn-download').addEventListener('click', () => {
-        const blob = new Blob([rawMd], { type: 'text/markdown' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'catalogo.md';
-        a.click();
-        URL.revokeObjectURL(a.href);
+      $('btn-expand').addEventListener('click', () => {
+        list.querySelectorAll('.event-card').forEach((c) => c.classList.add('open'));
       });
+      $('btn-collapse').addEventListener('click', () => {
+        list.querySelectorAll('.event-card').forEach((c) => c.classList.remove('open'));
+      });
+
+      search.addEventListener('input', applyFilter);
 
       load();
     </script>

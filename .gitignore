@@ -8,6 +8,7 @@ node_modules
 data/eventos
 data/_master/tmp
 data/_master/assembled.md
+data/_master/lista-eventos.md
 data/_master/thumbs
 
 # Fuente original de mapas (ya migrados a public/mapas/)
@@ -15,6 +16,7 @@ Mapas eventos TERCO (F)/
 
 # Dumps viejos en raíz
 terco_tour_eventos_con_urls_labeled*.md
+cost_*.csv
 
 # Export local para Chatrace (sufijo .nosync excluye iCloud, no se sube al repo)
 export-chatrace/

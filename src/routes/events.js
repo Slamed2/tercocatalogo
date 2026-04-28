@@ -21,6 +21,8 @@ import {
   deleteEventCompletely,
   pullFromVectorStore,
   buildFullMd,
+  buildListaEventosMd,
+  writeListaEventos,
   DATA_DIR,
   RULES_SLUG,
   INDEX_SLUG,
@@ -102,6 +104,60 @@ router.get('/', async (_req, res) => {
 router.get('/preview', async (_req, res) => {
   try {
     const md = await buildFullMd();
+    res.type('text/markdown').send(md);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/events/all — todos los eventos con su contenido completo (JSON).
+// Usado por la página /preview para mostrar cada evento por separado con buscador.
+// Incluye reglas y agente-reservas (con flag is_special) para visibilidad.
+router.get('/all', async (_req, res) => {
+  try {
+    const master = await readMasterMeta();
+    const entries = await fs.readdir(DATA_DIR, { withFileTypes: true });
+    const slugs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+    const ordered = [];
+    const seen = new Set();
+    for (const s of master.order || []) {
+      if (slugs.includes(s)) { ordered.push(s); seen.add(s); }
+    }
+    ordered.push(...slugs.filter((s) => !seen.has(s)));
+
+    const events = [];
+    for (const slug of ordered) {
+      const meta = await readEventMeta(slug);
+      if (!meta || meta.is_index) continue;
+      const content = await readEventContent(slug);
+      const imageName = await findImage(slug);
+      events.push({
+        slug,
+        title: meta.title || slug,
+        content,
+        is_rules: !!meta.is_rules,
+        is_special: ['agente-reservas'].includes(slug),
+        image: imageName ? `/data/eventos/${slug}/${imageName}` : null,
+        updated_at: meta.updated_at || null,
+      });
+    }
+    res.json({ events, total: events.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/events/lista — lista compacta de eventos (solo títulos), siempre fresca.
+// Pensada para pegar en el system prompt del agente. Soporta ?download=1 para
+// forzar descarga del archivo en el browser.
+router.get('/lista', async (req, res) => {
+  try {
+    const md = await buildListaEventosMd();
+    // También persistimos a disco — así el archivo en data/_master/ queda siempre al día.
+    await writeListaEventos().catch(() => {});
+    if (req.query.download) {
+      res.setHeader('Content-Disposition', 'attachment; filename="lista-eventos.md"');
+    }
     res.type('text/markdown').send(md);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -235,13 +291,14 @@ router.post('/openai/import-local', upload.single('file'), async (req, res) => {
       updated_at: now,
     });
 
-    // Un solo upload al VS con el archivo unificado.
+    // Un solo upload al VS con el archivo unificado + regenerar lista.
     let masterFileId = null;
     try {
       masterFileId = await syncMasterFile();
     } catch (err) {
       console.error('syncMasterFile:', err.message);
     }
+    try { await writeListaEventos(); } catch (err) { console.error('write lista-eventos:', err.message); }
 
     res.json({
       ok: true,
@@ -305,13 +362,15 @@ router.post('/', async (req, res) => {
     else order.push(slug);
     await writeMasterMeta({ ...master, order });
 
-    // Auto-sync: subir el archivo vacío + actualizar el catálogo.
-    const [eventRes, catalogRes] = await Promise.allSettled([
+    // Auto-sync: subir el archivo vacío + actualizar el catálogo + regenerar lista.
+    const [eventRes, catalogRes, listaRes] = await Promise.allSettled([
       syncEventFile(slug),
       syncMasterFile(),
+      writeListaEventos(),
     ]);
     if (eventRes.status === 'rejected') console.error('auto-sync evento nuevo falló:', eventRes.reason?.message);
     if (catalogRes.status === 'rejected') console.error('auto-sync catálogo falló:', catalogRes.reason?.message);
+    if (listaRes.status === 'rejected') console.error('write lista-eventos falló:', listaRes.reason?.message);
 
     res.json({ slug, title });
   } catch (err) {
@@ -334,14 +393,16 @@ router.put('/:slug', async (req, res) => {
       updated_at: new Date().toISOString(),
     });
 
-    // Auto-sync: subir el archivo del evento + actualizar el catálogo en paralelo.
+    // Auto-sync: subir el archivo del evento + actualizar el catálogo + regenerar lista.
     // Si alguno falla, respondemos 200 igual pero lo logueamos y avisamos al cliente.
-    const [eventRes, catalogRes] = await Promise.allSettled([
+    const [eventRes, catalogRes, listaRes] = await Promise.allSettled([
       syncEventFile(slug),
       syncMasterFile(),
+      writeListaEventos(),
     ]);
     if (eventRes.status === 'rejected') console.error('auto-sync evento falló:', eventRes.reason?.message);
     if (catalogRes.status === 'rejected') console.error('auto-sync catálogo falló:', catalogRes.reason?.message);
+    if (listaRes.status === 'rejected') console.error('write lista-eventos falló:', listaRes.reason?.message);
     res.json({
       ok: true,
       openai_file_id: eventRes.status === 'fulfilled' ? eventRes.value : null,
@@ -413,6 +474,7 @@ router.delete('/:slug', async (req, res) => {
     const { slug } = req.params;
     await deleteEventCompletely(slug);
     try { await syncMasterFile(); } catch (err) { console.error('syncMasterFile:', err.message); }
+    try { await writeListaEventos(); } catch (err) { console.error('write lista-eventos:', err.message); }
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

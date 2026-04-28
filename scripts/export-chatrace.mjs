@@ -1,16 +1,16 @@
-// Exporta los eventos a ./export-chatrace/ con la estructura:
-//   export-chatrace/
-//     _reglas-comunes/prompt.md  (agente de reglas — con prefijo _ para que aparezca primero)
-//     _agente-reservas/prompt.md (si tiene contenido)
+// Exporta los eventos a ./export-chatrace.nosync/ con la estructura:
+//   export-chatrace.nosync/
 //     <slug>/
 //       prompt.md       (solo datos del evento — limpio, sin MAPA_DE, sin reglas)
 //       imagenN.ext     (todas las imágenes del evento)
 //     _README.md
 //
+// reglas-comunes y agente-reservas NO se exportan — viven en el prompt del
+// agente principal de Chatrace, no como agentes separados.
+//
 // Uso:
 //   node scripts/export-chatrace.mjs
-//   node scripts/export-chatrace.mjs --out=/ruta/destino    (opcional)
-//   node scripts/export-chatrace.mjs --with-rules           (mete reglas en cada prompt — modo viejo)
+//   node scripts/export-chatrace.mjs --out=/ruta/destino
 
 import fs from 'fs/promises';
 import path from 'path';
@@ -30,11 +30,10 @@ const args = Object.fromEntries(
 
 // Sufijo .nosync = iCloud Drive excluye la carpeta de sync (no crea ghost <name> 2/, 3/).
 const OUT_DIR = path.resolve(args.out || path.join(ROOT, 'export-chatrace.nosync'));
-// Por default: reglas como agente aparte (no se inyectan en cada evento).
-// Con --with-rules: reglas se concatenan en cada prompt.md (modo viejo).
-const INCLUDE_RULES = !!args['with-rules'];
 
-// Slugs que NO son eventos comerciales — se exportan como agentes especiales aparte.
+// Slugs que NO son eventos comerciales — se EXCLUYEN del export.
+// (Antes se exportaban como agentes aparte; ahora todas las reglas viven en el
+//  prompt del agente principal de Chatrace, no en agentes separados.)
 const SPECIAL = new Set(['reglas-comunes', 'agente-reservas']);
 
 // Renombres manuales para resolver colisiones cuando se quita el sufijo numérico.
@@ -101,20 +100,11 @@ async function listImages(slug) {
 }
 
 async function main() {
-  console.log(`Exportando a: ${OUT_DIR}`);
-  console.log(`Reglas comunes: ${INCLUDE_RULES ? 'incluidas' : 'omitidas'}\n`);
+  console.log(`Exportando a: ${OUT_DIR}\n`);
 
   await fs.rm(OUT_DIR, { recursive: true, force: true });
   await fs.mkdir(OUT_DIR, { recursive: true });
 
-  // 1. Cargar reglas comunes (si aplica).
-  const rules = INCLUDE_RULES
-    ? await readMaybe(path.join(DATA_DIR, 'reglas-comunes', 'content.md'))
-    : null;
-
-  if (INCLUDE_RULES && !rules) {
-    console.warn('⚠  No se encontró reglas-comunes/content.md — se exporta sin reglas.');
-  }
 
   // 2. Listar eventos.
   const entries = await fs.readdir(DATA_DIR, { withFileTypes: true });
@@ -125,29 +115,8 @@ async function main() {
 
   const report = []; // {slug, title, imageCount, promptBytes, kind}
 
-  // 2a. Agentes especiales (reglas, reservas) — primero.
-  for (const slug of [...SPECIAL]) {
-    const content = await readMaybe(path.join(DATA_DIR, slug, 'content.md'));
-    if (!content || content.trim() === '---' || content.trim().length < 5) {
-      console.log(`  ⚠  ${slug}: vacío, salto`);
-      continue;
-    }
-    let title = slug;
-    try {
-      const meta = JSON.parse((await readMaybe(path.join(DATA_DIR, slug, 'meta.json'))) || '{}');
-      title = meta.title || slug;
-    } catch { /* ignore */ }
-
-    const cleaned = stripMapaBloque(content).trim();
-    const prompt = `# ${title}\n\n${cleaned}\n`;
-    const outDir = path.join(OUT_DIR, '_' + slug); // prefijo _ para que aparezca primero
-    await fs.mkdir(outDir, { recursive: true });
-    await fs.writeFile(path.join(outDir, 'prompt.md'), prompt);
-    report.push({ slug, title, imageCount: 0, promptBytes: prompt.length, kind: 'agente' });
-    console.log(`  ✓ _${slug} [agente] (prompt ${(prompt.length / 1024).toFixed(1)} KB)`);
-  }
-
-  // 2b. Eventos comerciales.
+  // 2. Eventos comerciales (reglas-comunes y agente-reservas se excluyen — viven
+  //    en el prompt del agente principal, no como agentes separados).
   const allSlugsSet = new Set(eventSlugs);
   for (const slug of eventSlugs) {
     const contentPath = path.join(DATA_DIR, slug, 'content.md');
@@ -170,19 +139,9 @@ async function main() {
     const outDir = path.join(OUT_DIR, exportSlug);
     await fs.mkdir(outDir, { recursive: true });
 
-    // 3. Componer prompt.md.
-    //    - default: solo evento (limpio, sin MAPA_DE, sin reglas)
-    //    - --with-rules: reglas + evento (modo viejo)
+    // 3. Componer prompt.md (solo datos del evento, limpio).
     const cleanedContent = stripMapaBloque(content).trim();
-    const parts = [];
-    if (INCLUDE_RULES && rules) {
-      parts.push('# Reglas comunes (Terco Tour)\n');
-      parts.push(rules.trim());
-      parts.push('\n---\n');
-    }
-    parts.push(`# ${title}\n`);
-    parts.push(cleanedContent);
-    const prompt = parts.join('\n') + '\n';
+    const prompt = `# ${title}\n\n${cleanedContent}\n`;
     await fs.writeFile(path.join(outDir, 'prompt.md'), prompt);
 
     // 4. Copiar imágenes.
@@ -199,7 +158,6 @@ async function main() {
       title,
       imageCount: images.length,
       promptBytes: prompt.length,
-      kind: 'evento',
     });
 
     const renameTag = exportSlug !== slug ? ` (← ${slug})` : '';
@@ -207,42 +165,22 @@ async function main() {
   }
 
   // 5. README.
-  const eventos = report.filter((r) => r.kind === 'evento');
-  const agentes = report.filter((r) => r.kind === 'agente');
+  const eventos = report;
   const withImages = eventos.filter((r) => r.imageCount > 0).length;
   const withoutImages = eventos.length - withImages;
-  const totalBytes = report.reduce((s, r) => s + r.promptBytes, 0);
+  const totalBytes = eventos.reduce((s, r) => s + r.promptBytes, 0);
 
   const lines = [
     `# Export Chatrace`,
     '',
     `Generado: ${new Date().toISOString()}`,
     '',
-    `- Agentes especiales: **${agentes.length}** (reglas, reservas)`,
     `- Eventos: **${eventos.length}** (${withImages} con imagen, ${withoutImages} sin)`,
     `- Tamaño total prompts: **${(totalBytes / 1024).toFixed(1)} KB**`,
-    `- Tamaño promedio prompt evento: **${eventos.length ? (eventos.reduce((s, r) => s + r.promptBytes, 0) / eventos.length / 1024).toFixed(1) : 0} KB**`,
-    `- Reglas en cada prompt: ${INCLUDE_RULES ? '**sí** (modo --with-rules)' : '**no** — están como agente aparte en `_reglas-comunes/`'}`,
+    `- Tamaño promedio: **${eventos.length ? (totalBytes / eventos.length / 1024).toFixed(1) : 0} KB** por evento`,
     '',
-    '## Estructura',
-    '',
-    '```',
-    'export-chatrace/',
-    ...agentes.map((r) => `├── _${r.slug}/\n│   └── prompt.md       (agente)`),
-    ...eventos.slice(0, 3).map((r) => {
-      const imgs = r.imageCount === 0 ? '' : `\n│   ├── imagen1.*`;
-      return `├── ${r.slug}/\n│   ├── prompt.md${imgs}`;
-    }),
-    '...',
-    '```',
-    '',
-    '## Agentes especiales',
-    '',
-    '| Slug | Título | Prompt (KB) |',
-    '|---|---|---|',
-    ...agentes.map((r) =>
-      `| \`_${r.slug}\` | ${r.title} | ${(r.promptBytes / 1024).toFixed(1)} |`
-    ),
+    'Las reglas comunes y el flujo de reservas viven en el prompt del agente',
+    'principal de Chatrace, no como agentes separados.',
     '',
     '## Eventos',
     '',
@@ -277,7 +215,6 @@ async function main() {
   }
 
   console.log(`\n=== Resultado ===`);
-  console.log(`Agentes:  ${agentes.length} (reglas, reservas)`);
   console.log(`Eventos:  ${eventos.length} (${withImages} con imagen, ${withoutImages} sin)`);
   console.log(`Tamaño total: ${(totalBytes / 1024).toFixed(1)} KB`);
   if (ghostsRemoved) console.log(`Carpetas fantasma de iCloud eliminadas: ${ghostsRemoved}`);
