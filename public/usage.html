@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Consumo OpenAI · tercotour</title>
+    <title>Consumo</title>
     <link rel="stylesheet" href="/css/styles.css" />
     <style>
       .usage-grid {
@@ -113,16 +113,6 @@
         border-radius: 8px;
         margin: 14px 0;
       }
-      .markup-banner {
-        background: rgba(79, 140, 255, 0.1);
-        border: 1px solid var(--primary);
-        color: var(--text);
-        padding: 10px 14px;
-        border-radius: 8px;
-        margin: 0 0 14px;
-        font-size: 13px;
-      }
-      .markup-banner strong { color: var(--primary); }
       select.btn {
         font-size: 14px;
         padding: 8px 12px;
@@ -132,12 +122,8 @@
   </head>
   <body>
     <header class="topbar">
-      <h1>Consumo OpenAI</h1>
+      <h1>Consumo</h1>
       <a href="/" class="btn">Volver</a>
-      <select id="view-mode" class="btn" title="Vista facturable o raw">
-        <option value="billable" selected>Facturable</option>
-        <option value="raw">Costo OpenAI</option>
-      </select>
       <select id="range" class="btn">
         <option value="1">Hoy</option>
         <option value="7" selected>Últimos 7 días</option>
@@ -148,8 +134,6 @@
 
     <main>
       <div id="err" class="err" hidden></div>
-
-      <div id="markup-banner" class="markup-banner" hidden></div>
 
       <div class="usage-grid">
         <div class="stat">
@@ -237,50 +221,35 @@
         }
       }
 
-      let lastData = null;
-
       function render(data) {
-        lastData = data;
-        const mode = $('view-mode').value; // 'billable' | 'raw'
-        const useBillable = mode === 'billable' && data.markup?.active;
-        const fieldDay = useBillable ? 'total_billable' : 'total';
-        const fieldTotal = useBillable ? 'total_period_billable' : 'total_period';
-        const fieldAvg = useBillable ? 'avg_per_day_billable' : 'avg_per_day';
-        const fieldProj = useBillable ? 'monthly_projection_billable' : 'monthly_projection';
-
-        // Banner del markup.
-        const banner = $('markup-banner');
-        if (data.markup?.active) {
-          const fromTxt = fmtDay(data.markup.from);
-          banner.innerHTML = useBillable
-            ? `Facturable: <strong>+${data.markup.pct}%</strong> sobre el costo OpenAI desde el ${fromTxt}.`
-            : `Vista raw (costo OpenAI sin markup). Markup activo: +${data.markup.pct}% desde ${fromTxt}.`;
-          banner.hidden = false;
-        } else {
-          banner.hidden = true;
-        }
-
-        $('stat-today').textContent = fmt(data.today[fieldDay]);
+        // Siempre se muestra el monto facturable (con markup si aplica).
+        // El raw queda solo en la API para auditoría interna.
+        $('stat-today').textContent = fmt(data.today.total_billable);
         $('stat-today-day').textContent = fmtDay(data.today.day) + ' · hora Argentina';
-        $('stat-total').textContent = fmt(data.summary[fieldTotal]);
+        $('stat-total').textContent = fmt(data.summary.total_period_billable);
         $('stat-total-days').textContent = `${data.days} días`;
-        $('stat-avg').textContent = fmt(data.summary[fieldAvg]);
-        $('stat-projection').textContent = fmt(data.summary[fieldProj]);
+        $('stat-avg').textContent = fmt(data.summary.avg_per_day_billable);
+        $('stat-projection').textContent = fmt(data.summary.monthly_projection_billable);
 
-        // Desglose hoy — siempre mostramos categorías al precio raw porque
-        // las categorías vienen de OpenAI (no se pueden marcar individualmente).
+        // Desglose hoy: las categorías vienen al precio raw, las escalamos al
+        // factor del día (total_billable / total) para que la suma cuadre con
+        // el stat de "Hoy".
+        const factor = data.today.total > 0
+          ? data.today.total_billable / data.today.total
+          : 1;
         const cats = data.today.categories;
         const sortedCats = Object.entries(cats).sort((a, b) => b[1] - a[1]);
         const breakdownEl = $('breakdown-today');
         if (!sortedCats.length) {
           breakdownEl.innerHTML = '<p style="color:#6b7280;">Sin actividad hoy.</p>';
         } else {
-          breakdownEl.innerHTML = sortedCats.map(([cat, amt]) =>
-            `<div class="row"><span class="cat">${escapeHtml(cat)}</span><span class="amt ${amt < 0.005 ? 'zero' : ''}">${fmtSmall(amt)}</span></div>`
-          ).join('');
+          breakdownEl.innerHTML = sortedCats.map(([cat, amt]) => {
+            const v = amt * factor;
+            return `<div class="row"><span class="cat">${escapeHtml(cat)}</span><span class="amt ${v < 0.005 ? 'zero' : ''}">${fmtSmall(v)}</span></div>`;
+          }).join('');
         }
 
-        // Tabla por día — usa el campo según el modo seleccionado.
+        // Tabla por día: monto facturable.
         const todayKey = data.today.day;
         const tbody = $('series-table').querySelector('tbody');
         tbody.innerHTML = data.series.map((d) => {
@@ -288,12 +257,11 @@
           return `
             <tr class="${isToday ? 'today' : ''}">
               <td>${fmtDay(d.day)}${isToday ? ' (hoy)' : ''}</td>
-              <td>${fmt(d[fieldDay])}</td>
+              <td>${fmt(d.total_billable)}</td>
             </tr>`;
         }).join('');
 
-        $('meta-info').textContent =
-          `Proyecto: ${data.project_id} · Actualizado: ${fmtDateTime(data.generated_at)}`;
+        $('meta-info').textContent = `Actualizado: ${fmtDateTime(data.generated_at)}`;
       }
 
       function escapeHtml(s) {
@@ -303,10 +271,6 @@
       }
 
       $('range').addEventListener('change', load);
-      // Cambio de modo: re-render con los datos cacheados (no necesita re-fetch).
-      $('view-mode').addEventListener('change', () => {
-        if (lastData) render(lastData);
-      });
 
       // Auto-refresh cada 60s. Pausa cuando la pestaña no está visible para
       // no quemar calls innecesariamente, y recarga al volver a foco.
