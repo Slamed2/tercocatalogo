@@ -32,6 +32,22 @@ function categorize(lineItem) {
   return lineItem;
 }
 
+// Markup configurable: porcentaje sobre el costo OpenAI desde una fecha dada.
+// Ejemplo: USAGE_MARKUP_PCT=50 USAGE_MARKUP_FROM=2026-04-29 → todo lo que
+// corresponde al 29/4 en adelante se multiplica por 1.5 cuando se reporta como
+// `total_billable`. Los días anteriores se reportan al costo raw (1×).
+function getMarkupConfig() {
+  const pct = parseFloat(process.env.USAGE_MARKUP_PCT || '0');
+  const from = process.env.USAGE_MARKUP_FROM || null; // 'YYYY-MM-DD' o null
+  return { pct: isNaN(pct) ? 0 : pct, from };
+}
+
+function billableFor(dayKey, raw, cfg) {
+  if (!cfg.pct || !cfg.from) return raw;
+  if (dayKey >= cfg.from) return raw * (1 + cfg.pct / 100);
+  return raw;
+}
+
 router.get('/', async (req, res) => {
   const days = Math.min(Math.max(parseInt(req.query.days || '7', 10), 1), 60);
   const projectId = process.env.OPENAI_PROJECT_ID;
@@ -42,6 +58,8 @@ router.get('/', async (req, res) => {
       error: 'Falta OPENAI_ADMIN_KEY o OPENAI_PROJECT_ID en el entorno.',
     });
   }
+
+  const markup = getMarkupConfig();
 
   // Alineación a horario Argentina (UTC-3, sin DST). Los buckets de OpenAI se
   // alinean al `start_time` que pasamos, así que enviando "medianoche Argentina"
@@ -96,34 +114,55 @@ router.get('/', async (req, res) => {
 
   // Producir array ordenado por día (ascendente) con todas las fechas del rango,
   // incluso días sin actividad (total=0) para que el gráfico no tenga huecos.
+  // Cada día incluye `total` (costo raw OpenAI) y `total_billable` (con markup
+  // si aplica desde USAGE_MARKUP_FROM).
   const series = [];
   for (let i = 0; i < days; i++) {
     const ts = start + i * 86400;
     const key = new Date(ts * 1000).toISOString().slice(0, 10);
+    const rawTotal = byDay[key]?.total || 0;
     series.push({
       day: key,
-      total: byDay[key]?.total || 0,
+      total: rawTotal,
+      total_billable: billableFor(key, rawTotal, markup),
       categories: byDay[key]?.categories || {},
     });
   }
 
-  // Métricas resumen.
+  // Métricas resumen — para `avg_per_day` y `monthly_projection` se usa la
+  // versión con markup (es lo que vas a facturar al cliente).
   const total = series.reduce((s, d) => s + d.total, 0);
+  const totalBillable = series.reduce((s, d) => s + d.total_billable, 0);
   const today = series[series.length - 1];
-  // Para el promedio excluimos hoy (parcial) si hay más de 1 día.
   const completedDays = series.slice(0, -1);
-  const avgCompleted = completedDays.length
+  const avgRaw = completedDays.length
     ? completedDays.reduce((s, d) => s + d.total, 0) / completedDays.length
     : today.total;
+  const avgBillable = completedDays.length
+    ? completedDays.reduce((s, d) => s + d.total_billable, 0) / completedDays.length
+    : today.total_billable;
 
   res.json({
     project_id: projectId,
     days,
-    today: { day: today.day, total: today.total, categories: today.categories },
+    today: {
+      day: today.day,
+      total: today.total,
+      total_billable: today.total_billable,
+      categories: today.categories,
+    },
     summary: {
       total_period: total,
-      avg_per_day: avgCompleted,
-      monthly_projection: avgCompleted * 30,
+      total_period_billable: totalBillable,
+      avg_per_day: avgRaw,
+      avg_per_day_billable: avgBillable,
+      monthly_projection: avgRaw * 30,
+      monthly_projection_billable: avgBillable * 30,
+    },
+    markup: {
+      pct: markup.pct,
+      from: markup.from,
+      active: markup.pct > 0 && !!markup.from,
     },
     series,
     generated_at: new Date().toISOString(),

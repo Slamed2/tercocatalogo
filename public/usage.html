@@ -113,6 +113,16 @@
         border-radius: 8px;
         margin: 14px 0;
       }
+      .markup-banner {
+        background: rgba(79, 140, 255, 0.1);
+        border: 1px solid var(--primary);
+        color: var(--text);
+        padding: 10px 14px;
+        border-radius: 8px;
+        margin: 0 0 14px;
+        font-size: 13px;
+      }
+      .markup-banner strong { color: var(--primary); }
       select.btn {
         font-size: 14px;
         padding: 8px 12px;
@@ -124,6 +134,10 @@
     <header class="topbar">
       <h1>Consumo OpenAI</h1>
       <a href="/" class="btn">Volver</a>
+      <select id="view-mode" class="btn" title="Vista facturable o raw">
+        <option value="billable" selected>Facturable</option>
+        <option value="raw">Costo OpenAI</option>
+      </select>
       <select id="range" class="btn">
         <option value="1">Hoy</option>
         <option value="7" selected>Últimos 7 días</option>
@@ -134,6 +148,8 @@
 
     <main>
       <div id="err" class="err" hidden></div>
+
+      <div id="markup-banner" class="markup-banner" hidden></div>
 
       <div class="usage-grid">
         <div class="stat">
@@ -221,15 +237,38 @@
         }
       }
 
-      function render(data) {
-        $('stat-today').textContent = fmt(data.today.total);
-        $('stat-today-day').textContent = fmtDay(data.today.day) + ' · hora Argentina';
-        $('stat-total').textContent = fmt(data.summary.total_period);
-        $('stat-total-days').textContent = `${data.days} días`;
-        $('stat-avg').textContent = fmt(data.summary.avg_per_day);
-        $('stat-projection').textContent = fmt(data.summary.monthly_projection);
+      let lastData = null;
 
-        // Desglose hoy.
+      function render(data) {
+        lastData = data;
+        const mode = $('view-mode').value; // 'billable' | 'raw'
+        const useBillable = mode === 'billable' && data.markup?.active;
+        const fieldDay = useBillable ? 'total_billable' : 'total';
+        const fieldTotal = useBillable ? 'total_period_billable' : 'total_period';
+        const fieldAvg = useBillable ? 'avg_per_day_billable' : 'avg_per_day';
+        const fieldProj = useBillable ? 'monthly_projection_billable' : 'monthly_projection';
+
+        // Banner del markup.
+        const banner = $('markup-banner');
+        if (data.markup?.active) {
+          const fromTxt = fmtDay(data.markup.from);
+          banner.innerHTML = useBillable
+            ? `Facturable: <strong>+${data.markup.pct}%</strong> sobre el costo OpenAI desde el ${fromTxt}.`
+            : `Vista raw (costo OpenAI sin markup). Markup activo: +${data.markup.pct}% desde ${fromTxt}.`;
+          banner.hidden = false;
+        } else {
+          banner.hidden = true;
+        }
+
+        $('stat-today').textContent = fmt(data.today[fieldDay]);
+        $('stat-today-day').textContent = fmtDay(data.today.day) + ' · hora Argentina';
+        $('stat-total').textContent = fmt(data.summary[fieldTotal]);
+        $('stat-total-days').textContent = `${data.days} días`;
+        $('stat-avg').textContent = fmt(data.summary[fieldAvg]);
+        $('stat-projection').textContent = fmt(data.summary[fieldProj]);
+
+        // Desglose hoy — siempre mostramos categorías al precio raw porque
+        // las categorías vienen de OpenAI (no se pueden marcar individualmente).
         const cats = data.today.categories;
         const sortedCats = Object.entries(cats).sort((a, b) => b[1] - a[1]);
         const breakdownEl = $('breakdown-today');
@@ -241,7 +280,7 @@
           ).join('');
         }
 
-        // Tabla por día.
+        // Tabla por día — usa el campo según el modo seleccionado.
         const todayKey = data.today.day;
         const tbody = $('series-table').querySelector('tbody');
         tbody.innerHTML = data.series.map((d) => {
@@ -249,7 +288,7 @@
           return `
             <tr class="${isToday ? 'today' : ''}">
               <td>${fmtDay(d.day)}${isToday ? ' (hoy)' : ''}</td>
-              <td>${fmt(d.total)}</td>
+              <td>${fmt(d[fieldDay])}</td>
             </tr>`;
         }).join('');
 
@@ -264,6 +303,10 @@
       }
 
       $('range').addEventListener('change', load);
+      // Cambio de modo: re-render con los datos cacheados (no necesita re-fetch).
+      $('view-mode').addEventListener('change', () => {
+        if (lastData) render(lastData);
+      });
 
       // Auto-refresh cada 60s. Pausa cuando la pestaña no está visible para
       // no quemar calls innecesariamente, y recarga al volver a foco.
