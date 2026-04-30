@@ -40,6 +40,28 @@ export async function fetchActiveStories() {
   return data.data || [];
 }
 
+// Devuelve los últimos N posts/reels publicados (default: 25). Trae también
+// caption (descripción), media_type, thumbnail/media URL y conteo de comentarios.
+// La API ordena por más reciente.
+export async function fetchRecentPosts(limit = 25) {
+  const { token, igUserId } = getConfig();
+  const url = new URL(`${BASE_URL}/${igUserId}/media`);
+  url.searchParams.set(
+    'fields',
+    'id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count'
+  );
+  url.searchParams.set('limit', String(Math.min(Math.max(limit, 1), 100)));
+  url.searchParams.set('access_token', token);
+
+  const r = await fetch(url);
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(`Graph API ${r.status}: ${text.slice(0, 300)}`);
+  }
+  const data = await r.json();
+  return data.data || [];
+}
+
 // Helper para descubrir el IG Business Account ID a partir del token.
 // Útil para configuración inicial.
 export async function discoverIgUserId(token) {

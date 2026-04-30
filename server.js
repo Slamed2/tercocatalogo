@@ -8,6 +8,7 @@ import eventsRouter from './src/routes/events.js';
 import thumbsRouter from './src/routes/thumbs.js';
 import usageRouter from './src/routes/usage.js';
 import storiesRouter, { publicGetStoryText, publicPutStoryText, publicGetStoryMedia } from './src/routes/stories.js';
+import postsRouter, { publicGetPostText, publicPutPostText, publicGetPostMedia } from './src/routes/posts.js';
 import mapasRouter from './src/routes/mapas.js';
 import { pullFromVectorStore } from './src/services/master.js';
 import { runMigrations, getSql } from './src/services/db.js';
@@ -120,6 +121,10 @@ app.get('/api/stories/:id/text', publicGetStoryText);
 app.put('/api/stories/:id/text', publicPutStoryText);
 app.get('/api/stories/:id/media', publicGetStoryMedia);
 
+app.get('/api/posts/:id/text', publicGetPostText);
+app.put('/api/posts/:id/text', publicPutPostText);
+app.get('/api/posts/:id/media', publicGetPostMedia);
+
 if (authEnabled) {
   app.get('/login', (_req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'login.html'));
@@ -159,6 +164,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/api/events', eventsRouter);
 app.use('/api/usage', usageRouter);
 app.use('/api/stories', storiesRouter);
+app.use('/api/posts', postsRouter);
 
 app.get('/editor/:slug', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'editor.html'));
@@ -178,6 +184,10 @@ app.get('/lista', (_req, res) => {
 
 app.get('/stories', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'stories.html'));
+});
+
+app.get('/posts', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'posts.html'));
 });
 
 if (!authEnabled) {
