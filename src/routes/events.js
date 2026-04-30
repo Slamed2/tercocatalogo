@@ -52,11 +52,18 @@ async function findImage(slug) {
   }
 }
 
-const MAP_LINE_RE = /^\s*-?\s*MAPA_DE\s+"[^"]*"\s*→\s*(\S+)/m;
+// Procesa línea por línea para evitar que `\S+` cruce saltos y agarre el `-`
+// del bullet de la próxima línea cuando una entrada MAPA_DE no tiene URL
+// (ej. evento con varios mapas y uno vacío).
+const MAP_LINE_RE = /^\s*-?\s*MAPA_DE\s+"[^"]*"\s*→\s*(\S+)/;
 
 function extractFirstMapUrl(content) {
-  const m = MAP_LINE_RE.exec(content || '');
-  return m ? m[1] : null;
+  if (!content) return null;
+  for (const line of content.split('\n')) {
+    const m = MAP_LINE_RE.exec(line);
+    if (m && m[1] && m[1] !== '-') return m[1];
+  }
+  return null;
 }
 
 // Si la URL es relativa (`/mapas/...`) y hay PUBLIC_BASE_URL, devolver la
