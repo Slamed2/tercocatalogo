@@ -8,6 +8,7 @@ import eventsRouter from './src/routes/events.js';
 import thumbsRouter from './src/routes/thumbs.js';
 import usageRouter from './src/routes/usage.js';
 import storiesRouter, { publicGetStoryText, publicPutStoryText, publicGetStoryMedia } from './src/routes/stories.js';
+import mapasRouter from './src/routes/mapas.js';
 import { pullFromVectorStore } from './src/services/master.js';
 import { runMigrations, getSql } from './src/services/db.js';
 
@@ -105,10 +106,10 @@ function parseCookies(header) {
 
 // Rutas públicas (antes del auth middleware): mapas e imágenes servidas al
 // agente/usuarios finales de OpenAI no tienen cookie de sesión.
-app.use('/mapas', express.static(path.join(__dirname, 'public', 'mapas'), {
-  maxAge: '7d',
-  immutable: true,
-}));
+//
+// /mapas es ahora un router custom que sirve desde Postgres (BYTEA) con
+// fallback al filesystem para imágenes legacy. Reemplazó al express.static.
+app.use('/mapas', mapasRouter);
 app.use('/thumb', thumbsRouter);
 
 // Endpoints públicos de stories (antes del auth middleware).

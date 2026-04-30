@@ -422,30 +422,45 @@ router.put('/:slug', async (req, res) => {
   }
 });
 
-// POST /api/events/:slug/map — sube una imagen a public/mapas/<slug>/ y devuelve URL absoluta.
-// Si PUBLIC_BASE_URL está seteada, devuelve URL completa; sino, relativa /mapas/<slug>/...
+// POST /api/events/:slug/map — guarda una imagen del mapa en Postgres (BYTEA)
+// y devuelve la URL absoluta. Persistente entre deploys de easypanel.
 router.post('/:slug/map', upload.single('map'), async (req, res) => {
   try {
     const { slug } = req.params;
     if (!req.file) return res.status(400).json({ error: 'map requerida' });
     const meta = await readEventMeta(slug);
     if (!meta) return res.status(404).json({ error: 'No existe' });
+
     const ext = (req.file.originalname.match(/\.(jpg|jpeg|png|webp|gif)$/i) || ['.jpg'])[0].toLowerCase();
-    // Una subcarpeta por evento: /mapas/<slug>/imagenN.ext
-    const eventDir = path.join(path.dirname(DATA_DIR), '..', 'public', 'mapas', slug);
-    await fs.mkdir(eventDir, { recursive: true });
-    // Próximo índice: cuento los imagenN.* existentes.
+    const contentType = req.file.mimetype || (
+      ext === '.png' ? 'image/png' :
+      ext === '.webp' ? 'image/webp' :
+      ext === '.gif' ? 'image/gif' :
+      'image/jpeg'
+    );
+
+    // Próximo índice: contar imagenN.* ya guardadas en DB para este slug.
+    const sql = (await import('../services/db.js')).getSql();
+    const existing = await sql`SELECT filename FROM event_media WHERE slug = ${slug}`;
     let n = 1;
-    try {
-      const files = await fs.readdir(eventDir);
-      const used = files
-        .map((f) => (f.match(/^imagen(\d+)\./i) || [])[1])
+    if (existing.length) {
+      const used = existing
+        .map((r) => (r.filename.match(/^imagen(\d+)\./i) || [])[1])
         .filter(Boolean)
         .map((s) => parseInt(s, 10));
       if (used.length) n = Math.max(...used) + 1;
-    } catch {}
+    }
     const filename = `imagen${n}${ext}`;
-    await fs.writeFile(path.join(eventDir, filename), req.file.buffer);
+
+    await sql`
+      INSERT INTO event_media (slug, filename, content_type, data, uploaded_at)
+      VALUES (${slug}, ${filename}, ${contentType}, ${req.file.buffer}, now())
+      ON CONFLICT (slug, filename) DO UPDATE SET
+        content_type = EXCLUDED.content_type,
+        data = EXCLUDED.data,
+        uploaded_at = now()
+    `;
+
     const base = (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
     res.json({ url: `${base}/mapas/${slug}/${filename}` });
   } catch (err) {
