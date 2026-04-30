@@ -24,13 +24,18 @@ function escapeHtml(s) {
   }[m]));
 }
 
-// Convierte una URL a su versión thumbnail si apunta a /mapas/.
-// Soporta:
-//  - /mapas/file.png              → /thumb/file.png (legacy plano)
-//  - /mapas/<slug>/file.png       → /thumb/<slug>/file.png (nuevo)
-//  - https://.../mapas/... también (absoluta o relativa).
+// Convierte una URL a su versión thumbnail si apunta a /mapas/ del MISMO origen.
+// Si es de otro origen (ej. local conectado a una DB de producción donde las
+// imágenes viven en otro server), devuelve la URL original sin tocar.
 function toThumbUrl(url, width = 480) {
   if (!url) return url;
+  // Si es absoluta a otro origen, no transformar.
+  if (/^https?:\/\//i.test(url)) {
+    try {
+      const u = new URL(url);
+      if (u.origin !== location.origin) return url;
+    } catch { return url; }
+  }
   const m = url.match(/\/mapas\/([^?#]+)/);
   if (!m) return url;
   const parts = m[1].split('/').map(encodeURIComponent).join('/');

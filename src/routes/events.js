@@ -59,6 +59,16 @@ function extractFirstMapUrl(content) {
   return m ? m[1] : null;
 }
 
+// Si la URL es relativa (`/mapas/...`) y hay PUBLIC_BASE_URL, devolver la
+// versión absoluta. Sirve cuando se desarrolla local pero las imágenes están
+// en el server público.
+function absolutize(url) {
+  if (!url || /^https?:\/\//i.test(url)) return url;
+  const base = (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+  if (!base) return url;
+  return base + url;
+}
+
 async function findFirstMapUrl(slug) {
   try {
     const content = await readEventContent(slug);
@@ -84,7 +94,7 @@ router.get('/', async (_req, res) => {
         updated_at: e.meta.updated_at || null,
         is_rules: !!e.meta.is_rules,
         openai_file_id: master.openai_file_id || null,
-        image: image || mapUrl,
+        image: absolutize(image || mapUrl),
       });
     }
     const indexInfo = master.openai_file_id

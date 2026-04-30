@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import eventsRouter from './src/routes/events.js';
 import thumbsRouter from './src/routes/thumbs.js';
 import usageRouter from './src/routes/usage.js';
+import storiesRouter, { publicGetStoryText, publicPutStoryText, publicGetStoryMedia } from './src/routes/stories.js';
 import { pullFromVectorStore } from './src/services/master.js';
 import { runMigrations, getSql } from './src/services/db.js';
 
@@ -110,6 +111,14 @@ app.use('/mapas', express.static(path.join(__dirname, 'public', 'mapas'), {
 }));
 app.use('/thumb', thumbsRouter);
 
+// Endpoints públicos de stories (antes del auth middleware).
+// - GET: lo usa el agente IA desde Chatrace para consultar el texto asignado.
+// - PUT: con header `X-API-Key` permite escritura externa (n8n, webhooks, etc.).
+//   Sin header pasa al middleware de auth y cae al router admin (UI con cookie).
+app.get('/api/stories/:id/text', publicGetStoryText);
+app.put('/api/stories/:id/text', publicPutStoryText);
+app.get('/api/stories/:id/media', publicGetStoryMedia);
+
 if (authEnabled) {
   app.get('/login', (_req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'login.html'));
@@ -148,6 +157,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.use('/api/events', eventsRouter);
 app.use('/api/usage', usageRouter);
+app.use('/api/stories', storiesRouter);
 
 app.get('/editor/:slug', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'editor.html'));
@@ -163,6 +173,10 @@ app.get('/usage', (_req, res) => {
 
 app.get('/lista', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'lista.html'));
+});
+
+app.get('/stories', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'stories.html'));
 });
 
 if (!authEnabled) {
