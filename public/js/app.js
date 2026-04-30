@@ -58,7 +58,6 @@ function renderGrid(events) {
       <div class="card-body">
         <h3>${escapeHtml(e.title)}</h3>
         <small>${e.updated_at ? new Date(e.updated_at).toLocaleString() : ''}</small>
-        ${e.openai_file_id ? `<small class="file-id">${e.openai_file_id}</small>` : '<small class="file-id warn">no sincronizado</small>'}
       </div>`;
     grid.appendChild(card);
   }
@@ -87,14 +86,10 @@ async function load() {
   const r = await fetch('/api/events');
   const data = await r.json();
   allEvents = data.events || [];
-  const withSync = allEvents.filter((e) => e.openai_file_id).length;
   if (masterInfo) {
-    const indexTxt = data.index?.openai_file_id
-      ? ` · índice: ${data.index.openai_file_id}`
-      : '';
     masterInfo.textContent = allEvents.length
-      ? `${allEvents.length} eventos en el vector store (${withSync} sincronizados)${indexTxt}`
-      : 'Sin eventos. Importá un .md o creá uno nuevo.';
+      ? `${allEvents.length} eventos`
+      : 'Sin eventos. Creá uno nuevo.';
   }
   applyFilter();
 }
