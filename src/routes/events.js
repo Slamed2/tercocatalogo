@@ -24,6 +24,7 @@ import {
   buildListaEventosMd,
   writeListaEventos,
   syncListaEventosFile,
+  loadAllEventsInOrder,
   DATA_DIR,
   RULES_SLUG,
   INDEX_SLUG,
@@ -53,11 +54,15 @@ async function findImage(slug) {
 
 const MAP_LINE_RE = /^\s*-?\s*MAPA_DE\s+"[^"]*"\s*→\s*(\S+)/m;
 
+function extractFirstMapUrl(content) {
+  const m = MAP_LINE_RE.exec(content || '');
+  return m ? m[1] : null;
+}
+
 async function findFirstMapUrl(slug) {
   try {
     const content = await readEventContent(slug);
-    const m = MAP_LINE_RE.exec(content || '');
-    return m ? m[1] : null;
+    return extractFirstMapUrl(content);
   } catch {
     return null;
   }
@@ -66,29 +71,18 @@ async function findFirstMapUrl(slug) {
 // GET /api/events — listar (incluye reglas al final)
 router.get('/', async (_req, res) => {
   try {
-    const master = await readMasterMeta();
-    const entries = await fs.readdir(DATA_DIR, { withFileTypes: true });
-    const slugs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
-    const ordered = [];
-    const seen = new Set();
-    for (const s of master.order || []) {
-      if (slugs.includes(s)) { ordered.push(s); seen.add(s); }
-    }
-    ordered.push(...slugs.filter((s) => !seen.has(s)));
-
+    const { master, events: rows } = await loadAllEventsInOrder();
     const events = [];
-    for (const slug of ordered) {
-      const meta = await readEventMeta(slug);
-      if (!meta) continue;
-      if (meta.is_index) continue; // legacy: no mostrar en grid
-      const imageName = await findImage(slug);
-      const image = imageName ? `/data/eventos/${slug}/${imageName}` : null;
-      const mapUrl = image ? null : await findFirstMapUrl(slug);
+    for (const e of rows) {
+      if (e.meta.is_index) continue; // legacy: no mostrar en grid
+      const imageName = await findImage(e.slug);
+      const image = imageName ? `/data/eventos/${e.slug}/${imageName}` : null;
+      const mapUrl = image ? null : extractFirstMapUrl(e.content);
       events.push({
-        slug,
-        title: meta.title || slug,
-        updated_at: meta.updated_at || null,
-        is_rules: !!meta.is_rules,
+        slug: e.slug,
+        title: e.title,
+        updated_at: e.meta.updated_at || null,
+        is_rules: !!e.meta.is_rules,
         openai_file_id: master.openai_file_id || null,
         image: image || mapUrl,
       });
@@ -117,30 +111,19 @@ router.get('/preview', async (_req, res) => {
 // Incluye reglas y agente-reservas (con flag is_special) para visibilidad.
 router.get('/all', async (_req, res) => {
   try {
-    const master = await readMasterMeta();
-    const entries = await fs.readdir(DATA_DIR, { withFileTypes: true });
-    const slugs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
-    const ordered = [];
-    const seen = new Set();
-    for (const s of master.order || []) {
-      if (slugs.includes(s)) { ordered.push(s); seen.add(s); }
-    }
-    ordered.push(...slugs.filter((s) => !seen.has(s)));
-
+    const { events: rows } = await loadAllEventsInOrder();
     const events = [];
-    for (const slug of ordered) {
-      const meta = await readEventMeta(slug);
-      if (!meta || meta.is_index) continue;
-      const content = await readEventContent(slug);
-      const imageName = await findImage(slug);
+    for (const e of rows) {
+      if (e.meta.is_index) continue;
+      const imageName = await findImage(e.slug);
       events.push({
-        slug,
-        title: meta.title || slug,
-        content,
-        is_rules: !!meta.is_rules,
-        is_special: ['agente-reservas'].includes(slug),
-        image: imageName ? `/data/eventos/${slug}/${imageName}` : null,
-        updated_at: meta.updated_at || null,
+        slug: e.slug,
+        title: e.title,
+        content: e.content,
+        is_rules: !!e.meta.is_rules,
+        is_special: ['agente-reservas'].includes(e.slug),
+        image: imageName ? `/data/eventos/${e.slug}/${imageName}` : null,
+        updated_at: e.meta.updated_at || null,
       });
     }
     res.json({ events, total: events.length });
@@ -242,20 +225,19 @@ router.post('/openai/import-local', upload.single('file'), async (req, res) => {
       let slug = makeSlug(ev.title) || `evento-${order.length + 1}`;
       const base = slug;
       let i = 2;
-      while (usedSlugs.has(slug) || fsSync.existsSync(path.join(DATA_DIR, slug))) {
+      // Verificar contra slugs usados en este loop + los que ya están en DB.
+      while (usedSlugs.has(slug) || (await readEventMeta(slug))) {
         slug = `${base}-${i++}`;
       }
       usedSlugs.add(slug);
-      const dir = path.join(DATA_DIR, slug);
-      await fs.mkdir(dir, { recursive: true });
-      await writeEventContent(slug, ev.content);
       await writeEventMeta(slug, {
         title: ev.title,
         created_at: now,
         updated_at: now,
-        image_urls: ev.imageUrls || [],
         is_rules: false,
       });
+      await writeEventContent(slug, ev.content);
+      // Imágenes siguen yendo al filesystem (public/mapas/<slug>/).
       const firstUrl = ev.imageUrls?.[0];
       if (firstUrl) {
         try {
@@ -263,7 +245,9 @@ router.post('/openai/import-local', upload.single('file'), async (req, res) => {
           if (resp.ok) {
             const buf = Buffer.from(await resp.arrayBuffer());
             const ext = (firstUrl.match(/\.(jpg|jpeg|png|webp|gif)(?:\?|$)/i) || [])[1] || 'jpg';
-            await fs.writeFile(path.join(dir, `image.${ext.toLowerCase()}`), buf);
+            const imgDir = path.join(DATA_DIR, slug);
+            await fs.mkdir(imgDir, { recursive: true });
+            await fs.writeFile(path.join(imgDir, `image.${ext.toLowerCase()}`), buf);
           }
         } catch {}
       }
@@ -275,8 +259,6 @@ router.post('/openai/import-local', upload.single('file'), async (req, res) => {
       rulesContent = rulesContent.replace(/^##\s+Reglas comunes[^\n]*\n*/i, '').trim();
     }
     if (rulesContent) {
-      const dir = path.join(DATA_DIR, RULES_SLUG);
-      await fs.mkdir(dir, { recursive: true });
       await writeEventContent(RULES_SLUG, rulesContent);
       await writeEventMeta(RULES_SLUG, {
         title: 'Reglas comunes',
@@ -348,9 +330,9 @@ router.post('/', async (req, res) => {
     if (RESERVED_SLUGS.has(slug)) {
       return res.status(400).json({ error: `nombre reservado por el sistema: "${slug}"` });
     }
-    const dir = path.join(DATA_DIR, slug);
-    if (fsSync.existsSync(dir)) return res.status(409).json({ error: 'ya existe' });
-    await fs.mkdir(dir, { recursive: true });
+    // Chequear si ya existe en DB.
+    const existing = await readEventMeta(slug);
+    if (existing) return res.status(409).json({ error: 'ya existe' });
     const now = new Date().toISOString();
     await writeEventMeta(slug, {
       title,

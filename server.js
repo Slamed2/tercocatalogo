@@ -8,23 +8,24 @@ import eventsRouter from './src/routes/events.js';
 import thumbsRouter from './src/routes/thumbs.js';
 import usageRouter from './src/routes/usage.js';
 import { pullFromVectorStore } from './src/services/master.js';
+import { runMigrations, getSql } from './src/services/db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Auto-bootstrap: si data/eventos está vacío al arrancar, bajar todo del vector store.
-// Esto resuelve el caso de container nuevo (easypanel tras redeploy sin volumen
-// persistente) — la UI arranca poblada sin intervención humana.
-// El progreso se expone en app.locals.bootstrap para que GET /api/events lo reporte
-// y la UI muestre "Cargando... N/total" en vez de "Sin eventos".
+// Auto-bootstrap: si la tabla `events` está vacía al arrancar, bajar todo del
+// vector store. Esto resuelve el caso de DB nueva — la UI arranca poblada sin
+// intervención humana.
 async function bootstrapFromVectorStore(app) {
   app.locals.bootstrap = { active: false, current: 0, total: 0, error: null };
-  const EVENTS_DIR = path.join(__dirname, 'data', 'eventos');
+  if (!process.env.DATABASE_URL) {
+    console.log('[bootstrap] DATABASE_URL no configurada, skip');
+    return;
+  }
   try {
-    await fs.mkdir(EVENTS_DIR, { recursive: true });
-    const entries = await fs.readdir(EVENTS_DIR, { withFileTypes: true });
-    const nonEmpty = entries.some((e) => e.isDirectory());
-    if (nonEmpty) {
-      console.log('[bootstrap] data/eventos ya tiene contenido, skip pull');
+    const sql = getSql();
+    const [{ count }] = await sql`SELECT COUNT(*)::int AS count FROM events`;
+    if (count > 0) {
+      console.log(`[bootstrap] DB ya tiene ${count} eventos, skip pull`);
       return;
     }
     if (!process.env.OPENAI_VECTOR_STORE_ID || !process.env.OPENAI_API_KEY) {
@@ -170,5 +171,15 @@ if (!authEnabled) {
 
 app.listen(PORT, async () => {
   console.log(`Servidor escuchando en http://localhost:${PORT}`);
+  // Aplicar migraciones SQL si DATABASE_URL está configurada.
+  if (process.env.DATABASE_URL) {
+    try {
+      await runMigrations();
+    } catch (err) {
+      console.error('[db] migraciones fallaron:', err.message);
+    }
+  } else {
+    console.warn('[db] DATABASE_URL no configurada — la app no va a poder leer/escribir eventos');
+  }
   await bootstrapFromVectorStore(app);
 });

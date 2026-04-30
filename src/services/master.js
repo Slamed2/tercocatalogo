@@ -1,8 +1,10 @@
-// Gestión multi-archivo:
-//  - Un archivo por evento en el vector store (`{slug}.md`).
-//  - Un archivo base `terco-tour-catalogo.md` que tiene índice + reglas comunes
-//    (sirve como referencia holística del catálogo).
-// Local: una carpeta por evento para editar.
+// Gestión del catálogo de eventos:
+//  - Storage: Postgres (tablas events + master_settings).
+//  - Vector store: un archivo por evento (`{slug}.md`) + lista-eventos.md global.
+//  - Imágenes: filesystem (`public/mapas/<slug>/`).
+//
+// Migrado del filesystem (data/eventos/*) a DB en abril 2026 para tener
+// persistencia real entre deploys de easypanel.
 
 import fs from 'fs/promises';
 import fsSync from 'fs';
@@ -10,6 +12,7 @@ import path from 'path';
 import slugify from 'slugify';
 import { fileURLToPath } from 'url';
 import { assembleMultiEventMd, parseMultiEventMd } from './mdsplit.js';
+import { getSql } from './db.js';
 import {
   syncFileToVectorStore,
   cleanupOrphans,
@@ -20,57 +23,119 @@ import {
 } from './openai.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(__dirname, '../../data/eventos');
-const MASTER_DIR = path.join(__dirname, '../../data/_master');
+const DATA_DIR = path.join(__dirname, '../../data/eventos');     // legacy: solo lectura para migración inicial
+const MASTER_DIR = path.join(__dirname, '../../data/_master');   // sigue usándose para tmp uploads y lista-eventos.md servida por endpoint
 const RULES_SLUG = 'reglas-comunes';
 const INDEX_SLUG = '_indice';
 const MASTER_FILENAME = 'terco-tour-catalogo.md';
 
 export async function ensureDirs() {
+  // El DATA_DIR sigue existiendo para retrocompatibilidad / migraciones.
   await fs.mkdir(DATA_DIR, { recursive: true });
   await fs.mkdir(MASTER_DIR, { recursive: true });
 }
 
+// === Master settings (single-row table) ===
+
 export async function readMasterMeta() {
-  try {
-    const raw = await fs.readFile(path.join(MASTER_DIR, 'meta.json'), 'utf8');
-    return JSON.parse(raw);
-  } catch {
-    return { preamble: '', order: [], updated_at: null };
-  }
+  const sql = getSql();
+  const [row] = await sql`SELECT * FROM master_settings WHERE id = 1`;
+  if (!row) return { preamble: '', order: [], updated_at: null, openai_file_id: null, lista_file_id: null };
+
+  // Reconstruir el array `order` desde events.display_order.
+  const orderRows = await sql`
+    SELECT slug FROM events
+    WHERE display_order IS NOT NULL
+    ORDER BY display_order ASC, slug ASC
+  `;
+  const order = orderRows.map((r) => r.slug);
+
+  return {
+    preamble: row.preamble || '',
+    order,
+    updated_at: row.updated_at?.toISOString?.() || row.updated_at,
+    openai_file_id: row.catalog_file_id || null,
+    lista_file_id: row.lista_file_id || null,
+  };
 }
 
 export async function writeMasterMeta(meta) {
-  await fs.mkdir(MASTER_DIR, { recursive: true });
-  await fs.writeFile(path.join(MASTER_DIR, 'meta.json'), JSON.stringify(meta, null, 2));
-}
-
-export async function readEventMeta(slug) {
-  try {
-    const raw = await fs.readFile(path.join(DATA_DIR, slug, 'meta.json'), 'utf8');
-    return JSON.parse(raw);
-  } catch {
-    return null;
+  const sql = getSql();
+  // Actualizar campos de master_settings.
+  await sql`
+    UPDATE master_settings SET
+      preamble = ${meta.preamble || ''},
+      catalog_file_id = ${meta.openai_file_id || null},
+      lista_file_id = ${meta.lista_file_id || null},
+      updated_at = now()
+    WHERE id = 1
+  `;
+  // Si vino un array `order`, actualizar el display_order de cada slug.
+  if (Array.isArray(meta.order)) {
+    for (let i = 0; i < meta.order.length; i++) {
+      const slug = meta.order[i];
+      await sql`UPDATE events SET display_order = ${i} WHERE slug = ${slug}`;
+    }
   }
 }
 
+// === Event meta + content ===
+
+// Devuelve el "meta" del evento (todo menos el content) en el shape legacy
+// que usa events.js: { title, created_at, updated_at, openai_file_id, is_rules, is_index, ... }
+export async function readEventMeta(slug) {
+  const sql = getSql();
+  const [row] = await sql`SELECT slug, title, is_rules, is_index, openai_file_id, created_at, updated_at FROM events WHERE slug = ${slug}`;
+  if (!row) return null;
+  return {
+    title: row.title,
+    is_rules: row.is_rules,
+    is_index: row.is_index,
+    openai_file_id: row.openai_file_id,
+    created_at: row.created_at?.toISOString?.() || row.created_at,
+    updated_at: row.updated_at?.toISOString?.() || row.updated_at,
+  };
+}
+
+// UPSERT del meta del evento. Si el evento no existe, lo crea con content=''.
 export async function writeEventMeta(slug, meta) {
-  await fs.mkdir(path.join(DATA_DIR, slug), { recursive: true });
-  await fs.writeFile(path.join(DATA_DIR, slug, 'meta.json'), JSON.stringify(meta, null, 2));
+  const sql = getSql();
+  await sql`
+    INSERT INTO events (slug, title, is_rules, is_index, openai_file_id, created_at, updated_at)
+    VALUES (
+      ${slug},
+      ${meta.title || slug},
+      ${!!meta.is_rules},
+      ${!!meta.is_index},
+      ${meta.openai_file_id || null},
+      ${meta.created_at || new Date().toISOString()},
+      ${meta.updated_at || new Date().toISOString()}
+    )
+    ON CONFLICT (slug) DO UPDATE SET
+      title = EXCLUDED.title,
+      is_rules = EXCLUDED.is_rules,
+      is_index = EXCLUDED.is_index,
+      openai_file_id = EXCLUDED.openai_file_id,
+      updated_at = EXCLUDED.updated_at
+  `;
 }
 
 export async function readEventContent(slug) {
-  try {
-    return await fs.readFile(path.join(DATA_DIR, slug, 'content.md'), 'utf8');
-  } catch {
-    return '';
-  }
+  const sql = getSql();
+  const [row] = await sql`SELECT content FROM events WHERE slug = ${slug}`;
+  return row?.content || '';
 }
 
+// Si el evento no existe, lo crea con title=slug. Si existe, sólo actualiza el content.
 export async function writeEventContent(slug, content) {
-  const dir = path.join(DATA_DIR, slug);
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, 'content.md'), content ?? '');
+  const sql = getSql();
+  await sql`
+    INSERT INTO events (slug, title, content, updated_at)
+    VALUES (${slug}, ${slug}, ${content ?? ''}, now())
+    ON CONFLICT (slug) DO UPDATE SET
+      content = EXCLUDED.content,
+      updated_at = now()
+  `;
 }
 
 export function makeSlug(input) {
@@ -163,25 +228,30 @@ export async function syncIndexFile() { return await syncCatalogFile(); }
 // Alias legacy para compat con llamadas internas.
 export async function syncMasterFile() { return await syncCatalogFile(); }
 
+// Devuelve TODOS los eventos en una sola query, ordenados por display_order
+// (los que tienen) y después alfabéticamente por slug. Cada evento incluye su
+// content completo y un `meta` con el shape legacy.
 export async function loadAllEventsInOrder() {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT slug, title, content, is_rules, is_index, openai_file_id, display_order, created_at, updated_at
+    FROM events
+    ORDER BY (display_order IS NULL), display_order ASC, slug ASC
+  `;
   const master = await readMasterMeta();
-  const entries = await fs.readdir(DATA_DIR, { withFileTypes: true });
-  const slugs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
-
-  const ordered = [];
-  const seen = new Set();
-  for (const s of master.order || []) {
-    if (slugs.includes(s)) { ordered.push(s); seen.add(s); }
-  }
-  ordered.push(...slugs.filter((s) => !seen.has(s)));
-
-  const events = [];
-  for (const slug of ordered) {
-    const meta = await readEventMeta(slug);
-    if (!meta) continue;
-    const content = await readEventContent(slug);
-    events.push({ slug, title: meta.title || slug, content, meta });
-  }
+  const events = rows.map((r) => ({
+    slug: r.slug,
+    title: r.title || r.slug,
+    content: r.content || '',
+    meta: {
+      title: r.title || r.slug,
+      is_rules: r.is_rules,
+      is_index: r.is_index,
+      openai_file_id: r.openai_file_id,
+      created_at: r.created_at?.toISOString?.() || r.created_at,
+      updated_at: r.updated_at?.toISOString?.() || r.updated_at,
+    },
+  }));
   return { master, events };
 }
 
@@ -445,13 +515,9 @@ async function pullFromSingleMaster(masterFile, emit) {
 
   const parsed = parseMultiEventMd(content);
 
-  // Wipe local.
-  const prev = await fs.readdir(DATA_DIR, { withFileTypes: true }).catch(() => []);
-  for (const e of prev) {
-    if (e.isDirectory()) {
-      await fs.rm(path.join(DATA_DIR, e.name), { recursive: true, force: true });
-    }
-  }
+  // Wipe DB.
+  const sql = getSql();
+  await sql`DELETE FROM events`;
 
   const now = new Date().toISOString();
   const order = [];
@@ -464,15 +530,13 @@ async function pullFromSingleMaster(masterFile, emit) {
     let i = 2;
     while (usedSlugs.has(slug)) slug = `${base}-${i++}`;
     usedSlugs.add(slug);
-    const dir = path.join(DATA_DIR, slug);
-    await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(path.join(dir, 'content.md'), ev.content);
     await writeEventMeta(slug, {
       title: ev.title,
       is_rules: false,
       created_at: now,
       updated_at: now,
     });
+    await writeEventContent(slug, ev.content);
     order.push(slug);
     imported.push({ slug, title: ev.title });
   }
@@ -483,15 +547,13 @@ async function pullFromSingleMaster(masterFile, emit) {
       .replace(/^##\s+Reglas comunes[^\n]*\n*/i, '')
       .trim();
     if (rulesContent) {
-      const dir = path.join(DATA_DIR, RULES_SLUG);
-      await fs.mkdir(dir, { recursive: true });
-      await fs.writeFile(path.join(dir, 'content.md'), rulesContent);
       await writeEventMeta(RULES_SLUG, {
         title: 'Reglas comunes',
         is_rules: true,
         created_at: now,
         updated_at: now,
       });
+      await writeEventContent(RULES_SLUG, rulesContent);
       order.push(RULES_SLUG);
       imported.push({ slug: RULES_SLUG, title: 'Reglas comunes' });
       rulesFound = true;
@@ -566,13 +628,9 @@ export async function pullFromVectorStore(onProgress) {
 
   emit({ type: 'writing' });
 
-  // Wipe local SOLO después de que todas las descargas en memoria estén ok.
-  const entries = await fs.readdir(DATA_DIR, { withFileTypes: true }).catch(() => []);
-  for (const e of entries) {
-    if (e.isDirectory()) {
-      await fs.rm(path.join(DATA_DIR, e.name), { recursive: true, force: true });
-    }
-  }
+  // Wipe DB SOLO después de que todas las descargas en memoria estén ok.
+  const sql = getSql();
+  await sql`DELETE FROM events`;
 
   const now = new Date().toISOString();
   const order = [];
@@ -586,9 +644,6 @@ export async function pullFromVectorStore(onProgress) {
     const base = (f.filename || '').replace(/\.md$/i, '');
 
     if (base === 'indice-eventos' || base === INDEX_SLUG) {
-      const dir = path.join(DATA_DIR, INDEX_SLUG);
-      await fs.mkdir(dir, { recursive: true });
-      await fs.writeFile(path.join(dir, 'content.md'), content);
       await writeEventMeta(INDEX_SLUG, {
         title: 'Índice de eventos',
         is_index: true,
@@ -596,15 +651,13 @@ export async function pullFromVectorStore(onProgress) {
         updated_at: now,
         openai_file_id: f.id,
       });
+      await writeEventContent(INDEX_SLUG, content);
       indexFound = true;
       continue;
     }
 
     if (base === 'reglas-comunes' || base === RULES_SLUG) {
       const body = content.replace(/^##\s+Reglas comunes[^\n]*\n+/i, '').trim();
-      const dir = path.join(DATA_DIR, RULES_SLUG);
-      await fs.mkdir(dir, { recursive: true });
-      await fs.writeFile(path.join(dir, 'content.md'), body);
       await writeEventMeta(RULES_SLUG, {
         title: 'Reglas comunes',
         is_rules: true,
@@ -612,6 +665,7 @@ export async function pullFromVectorStore(onProgress) {
         updated_at: now,
         openai_file_id: f.id,
       });
+      await writeEventContent(RULES_SLUG, body);
       rulesFound = true;
       imported.push({ slug: RULES_SLUG, title: 'Reglas comunes' });
       continue;
@@ -627,9 +681,6 @@ export async function pullFromVectorStore(onProgress) {
     } else {
       body = content.trim();
     }
-    const dir = path.join(DATA_DIR, slug);
-    await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(path.join(dir, 'content.md'), body);
     await writeEventMeta(slug, {
       title,
       is_rules: false,
@@ -637,6 +688,7 @@ export async function pullFromVectorStore(onProgress) {
       updated_at: now,
       openai_file_id: f.id,
     });
+    await writeEventContent(slug, body);
     order.push(slug);
     imported.push({ slug, title });
   }
@@ -664,17 +716,17 @@ export async function pullFromVectorStore(onProgress) {
   return result;
 }
 
-// Elimina un evento de OpenAI y local.
+// Elimina un evento de OpenAI y de la DB.
+// Nota: las imágenes en `public/mapas/<slug>/` NO se borran automáticamente —
+// quedan disponibles por si se quiere recuperar el evento.
 export async function deleteEventCompletely(slug) {
+  const sql = getSql();
   const meta = await readEventMeta(slug);
   if (!meta) return;
   if (meta.openai_file_id) {
     await deleteFromVectorStore(meta.openai_file_id);
   }
-  await fs.rm(path.join(DATA_DIR, slug), { recursive: true, force: true });
-  const master = await readMasterMeta();
-  const order = (master.order || []).filter((s) => s !== slug);
-  await writeMasterMeta({ ...master, order });
+  await sql`DELETE FROM events WHERE slug = ${slug}`;
 }
 
 export { DATA_DIR, MASTER_DIR };
