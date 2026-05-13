@@ -84,15 +84,19 @@ function renderMaps() {
         <div class="map-img-fail" hidden>No se pudo cargar la imagen</div>
       </div>
       <input class="map-url" type="url" value="${escapeHtml(map.url)}" placeholder="URL de la imagen" />
-      <label class="btn btn-secondary file-label">
-        Reemplazar mapa
-        <input class="map-file" type="file" accept="image/*" hidden />
-      </label>
+      <div class="map-actions">
+        <label class="btn btn-secondary file-label">
+          Reemplazar
+          <input class="map-file" type="file" accept="image/*" hidden />
+        </label>
+        <button type="button" class="btn btn-danger btn-del-map">Eliminar</button>
+      </div>
     `;
     const urlInput = item.querySelector('.map-url');
     const imgEl = item.querySelector('.map-img');
     const failEl = item.querySelector('.map-img-fail');
     const fileEl = item.querySelector('.map-file');
+    const btnDelMap = item.querySelector('.btn-del-map');
 
     urlInput.addEventListener('change', () => {
       updateMapUrl(idx, urlInput.value.trim());
@@ -121,8 +125,52 @@ function renderMaps() {
       }
     });
 
+    btnDelMap.addEventListener('click', async () => {
+      if (!confirm(`¿Eliminar el mapa "${map.label}"?\n\nSaca la línea MAPA_DE del evento y borra la imagen del storage.`)) return;
+      try {
+        // 1) Borrar de event_media (DB). Extraer filename de la URL.
+        const filename = (map.url.match(/\/mapas\/[^/]+\/([^?#]+)/) || [])[1];
+        if (filename) {
+          const r = await fetch(
+            `/api/events/${encodeURIComponent(slug)}/map?filename=${encodeURIComponent(filename)}`,
+            { method: 'DELETE' }
+          );
+          if (!r.ok) {
+            const e = await r.json().catch(() => ({}));
+            throw new Error(e.error || `HTTP ${r.status}`);
+          }
+        }
+        // 2) Sacar la línea MAPA_DE del editor.
+        removeMapLine(idx);
+        showToast('Mapa eliminado ✓');
+      } catch (err) {
+        showToast('Error: ' + err.message, true);
+      }
+    });
+
     mapsList.appendChild(item);
   });
+}
+
+// Borra la línea MAPA_DE en la posición indicada y re-renderiza los markers.
+function removeMapLine(idx) {
+  const cm = editor.codemirror;
+  const marker = mapMarkers[idx];
+  if (!marker) return;
+  const pos = marker.find();
+  if (!pos) return;
+  const line = pos.from.line;
+  cm.operation(() => {
+    marker.clear();
+    // Borrar la línea completa, incluido el salto de línea.
+    const from = { line, ch: 0 };
+    const to = line + 1 < cm.lineCount()
+      ? { line: line + 1, ch: 0 }
+      : { line, ch: cm.getLine(line).length };
+    cm.replaceRange('', from, to);
+  });
+  applyMapMarkers();
+  renderMaps();
 }
 
 function updateMapUrl(idx, newUrl) {

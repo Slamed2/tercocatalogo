@@ -375,11 +375,20 @@ dialog input { padding: 8px 10px; background: var(--panel-2); border: 1px solid 
 }
 .map-url:focus { outline: none; border-color: var(--primary); }
 .map-item .file-label {
+  flex: 1;
   display: block;
   text-align: center;
   font-size: 12px;
   padding: 6px 10px;
   cursor: pointer;
+}
+.map-actions {
+  display: flex;
+  gap: 6px;
+}
+.map-actions .btn-del-map {
+  font-size: 12px;
+  padding: 6px 10px;
 }
 #btn-add-map-label {
   display: block;

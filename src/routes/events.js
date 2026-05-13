@@ -468,6 +468,28 @@ router.post('/:slug/map', upload.single('map'), async (req, res) => {
   }
 });
 
+// DELETE /api/events/:slug/map?filename=imagenN.ext — borra una imagen
+// de evento de event_media. El frontend además debe sacar la línea MAPA_DE
+// del content y guardar el evento (PUT) para que el cambio se refleje en el VS.
+router.delete('/:slug/map', async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const { filename } = req.query;
+    if (!filename) return res.status(400).json({ error: 'filename requerido' });
+    const meta = await readEventMeta(slug);
+    if (!meta) return res.status(404).json({ error: 'No existe el evento' });
+
+    const sql = (await import('../services/db.js')).getSql();
+    await sql`
+      DELETE FROM event_media
+      WHERE slug = ${slug} AND filename = ${filename}
+    `;
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/events/:slug/image
 router.post('/:slug/image', upload.single('image'), async (req, res) => {
   try {
