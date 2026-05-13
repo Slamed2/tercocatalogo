@@ -10,6 +10,7 @@ import usageRouter from './src/routes/usage.js';
 import storiesRouter, { publicGetStoryText, publicPutStoryText, publicGetStoryMedia } from './src/routes/stories.js';
 import postsRouter, { publicGetPostText, publicPutPostText, publicGetPostMedia } from './src/routes/posts.js';
 import mapasRouter from './src/routes/mapas.js';
+import cleanupRouter from './src/routes/cleanup.js';
 import { pullFromVectorStore } from './src/services/master.js';
 import { runMigrations, getSql } from './src/services/db.js';
 
@@ -165,6 +166,7 @@ app.use('/api/events', eventsRouter);
 app.use('/api/usage', usageRouter);
 app.use('/api/stories', storiesRouter);
 app.use('/api/posts', postsRouter);
+app.use('/api/cleanup', cleanupRouter);
 
 app.get('/editor/:slug', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'editor.html'));
