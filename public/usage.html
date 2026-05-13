@@ -124,6 +124,7 @@
     <header class="topbar">
       <h1>Consumo</h1>
       <a href="/" class="btn">Volver</a>
+      <button id="btn-cleanup" class="btn" title="Borra archivos huérfanos del vector store, imágenes sin evento, y stories expiradas">Borrar caché</button>
       <select id="range" class="btn">
         <option value="1">Hoy</option>
         <option value="7" selected>Últimos 7 días</option>
@@ -271,6 +272,45 @@
       }
 
       $('range').addEventListener('change', load);
+
+      $('btn-cleanup').addEventListener('click', async () => {
+        const ok = confirm(
+          'Borrar caché del sistema:\n' +
+          '• Archivos huérfanos del vector store\n' +
+          '• Imágenes de mapas sin evento asociado\n' +
+          '• Stories expiradas (textos + thumbnails)\n\n' +
+          'Esta acción no se puede deshacer. ¿Continuar?'
+        );
+        if (!ok) return;
+
+        const btn = $('btn-cleanup');
+        btn.disabled = true;
+        btn.textContent = 'Limpiando…';
+
+        try {
+          const r = await fetch('/api/cleanup', { method: 'POST' });
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          const data = await r.json();
+          const a = data.actions || {};
+          const lines = [];
+          if (a.zombies) lines.push(`VS zombies: ${a.zombies.deleted}`);
+          if (a.event_media) lines.push(`Imágenes huérfanas: ${a.event_media.deleted}`);
+          if (a.stories) {
+            const t = a.stories.story_texts_deleted ?? 0;
+            const m = a.stories.story_media_deleted ?? 0;
+            lines.push(`Stories: ${t} textos + ${m} thumbnails`);
+          }
+          alert('Caché limpiado ✓\n\n' + lines.join('\n') + '\n\nEstado final:\n' +
+            Object.entries(data.final_state || {})
+              .map(([k, v]) => `  ${k}: ${v}`).join('\n')
+          );
+        } catch (err) {
+          alert('Error al limpiar: ' + err.message);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = 'Borrar caché';
+        }
+      });
 
       // Auto-refresh cada 60s. Pausa cuando la pestaña no está visible para
       // no quemar calls innecesariamente, y recarga al volver a foco.
